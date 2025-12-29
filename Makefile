@@ -1,8 +1,8 @@
-.PHONY: build clean docker docker-push push pushtoumbrel deploy run test fmt vet check
+.PHONY: build clean docker docker-push push deploy run test fmt vet check
 
-# Binary name
-BINARY=downloader
-MODULE=umbrel-downloader
+# Source directory
+SRC_DIR=file-downloader
+BINARY=$(SRC_DIR)/downloader
 
 # Docker image
 REGISTRY?=ghcr.io
@@ -20,15 +20,15 @@ all: build
 
 # Build binary
 build:
-	go build $(LDFLAGS) -o $(BINARY) .
+	cd $(SRC_DIR) && go build $(LDFLAGS) -o downloader .
 
 # Build for Linux (useful for Docker/Umbrel)
 build-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY) .
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o downloader .
 
 # Build for ARM64 (Raspberry Pi)
 build-arm64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BINARY) .
+	cd $(SRC_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o downloader .
 
 # Run locally
 run: build
@@ -36,16 +36,16 @@ run: build
 
 # Clean build artifacts
 clean:
-	rm -f $(BINARY) $(MODULE)
-	go clean
+	rm -f $(BINARY)
+	cd $(SRC_DIR) && go clean
 
 # Build Docker image
 docker:
-	docker build -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest .
+	docker build -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest $(SRC_DIR)
 
 # Build multi-arch Docker image
 docker-multiarch:
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest $(SRC_DIR)
 
 # Push Docker image to registry
 docker-push: docker
@@ -85,15 +85,15 @@ release:
 
 # Format code
 fmt:
-	go fmt ./...
+	cd $(SRC_DIR) && go fmt ./...
 
 # Vet code
 vet:
-	go vet ./...
+	cd $(SRC_DIR) && go vet ./...
 
 # Run tests
 test:
-	go test -v ./...
+	cd $(SRC_DIR) && go test -v ./...
 
 # Full check before commit
 check: fmt vet test build

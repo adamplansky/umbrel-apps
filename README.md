@@ -1,64 +1,64 @@
-# Umbrel Downloader
+# Adam's Umbrel App Store
 
-A simple file downloader with web UI for Umbrel OS. Downloads files directly to your Jellyfin movies folder.
+A community app store for Umbrel OS.
 
-## Features
+## Install on Umbrel
 
+1. Click **⋮** (three dots, top-right corner)
+2. Select **Community App Stores**
+3. Add: `https://github.com/adamplansky/umbrel-downloader`
+4. Click **Add**
+
+Then go to **App Store** → **Adam's Apps** to install apps.
+
+---
+
+## Apps
+
+### File Downloader
+
+A simple file downloader with web UI. Downloads files directly to your Jellyfin movies folder.
+
+**Features:**
 - Web UI with dark theme
 - Multiple concurrent downloads
 - Progress bars with download speed
 - Download history
 - Cancel downloads (auto-cleanup of partial files)
 
-## Install on Umbrel
+**Download location:** `/home/umbrel/umbrel/home/Downloads/movies/`
 
-### 1. Add Community App Store
+---
 
-In Umbrel UI:
-1. Click **⋮** (three dots, top-right corner)
-2. Select **Community App Stores**
-3. Add: `https://github.com/adamplansky/umbrel-downloader`
-4. Click **Add**
+## Repository Structure
 
-### 2. Install the App
+```
+├── umbrel-app-store.yml              # App store manifest
+├── adamplansky-file-downloader/      # App definition for Umbrel
+│   ├── umbrel-app.yml
+│   ├── docker-compose.yml
+│   └── icon.svg
+├── file-downloader/                  # Source code
+│   ├── main.go
+│   ├── go.mod
+│   └── Dockerfile
+└── Makefile
+```
 
-1. Go to **App Store**
-2. Find **Adam's Apps** section
-3. Click **File Downloader** → **Install**
-
-## Updating
-
-After making changes:
+## Development
 
 ```bash
-make release   # Push to GitHub, triggers Docker build
-# Wait ~2 min for build to complete
-make deploy    # Pull new image and restart app on Umbrel
-```
-
-Check build status: https://github.com/adamplansky/umbrel-downloader/actions
-
-## Download Location
-
-Files are downloaded to:
-```
-/home/umbrel/umbrel/home/Downloads/movies/
-```
-
-Same folder as Jellyfin - downloaded movies appear automatically.
-
-## Local Development
-
-```bash
-make run       # Build and run on http://localhost:8080
-```
-
-## Commands
-
-```bash
-make help      # Show all commands
 make build     # Build binary
-make run       # Run locally on :8080
+make run       # Run locally on http://localhost:8080
 make release   # Push to GitHub (triggers Docker build)
 make deploy    # Pull image & restart app on Umbrel
+make help      # Show all commands
 ```
+
+## Adding a New App
+
+1. Create app folder: `adamplansky-<app-name>/`
+2. Add `umbrel-app.yml`, `docker-compose.yml`, `icon.svg`
+3. Create source folder: `<app-name>/` with code and Dockerfile
+4. Update GitHub Actions if needed
+5. `make release` to push
