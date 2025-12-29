@@ -10,39 +10,33 @@ A simple file downloader with web UI for Umbrel OS. Downloads files directly to 
 - Download history
 - Cancel downloads (auto-cleanup of partial files)
 
-## Deploy to Umbrel
+## Install on Umbrel
 
-### Prerequisites
+### 1. Add Community App Store
 
-- SSH access to your Umbrel device
-- GitHub repository with Actions enabled
+In Umbrel UI:
+1. Click **⋮** (three dots, top-right corner)
+2. Select **Community App Stores**
+3. Add: `https://github.com/adamplansky/umbrel-downloader`
+4. Click **Add**
 
-### Workflow
+### 2. Install the App
+
+1. Go to **App Store**
+2. Find **Adam's Apps** section
+3. Click **File Downloader** → **Install**
+
+## Updating
+
+After making changes:
 
 ```bash
-# 1. Make your changes, then push to GitHub
-make release
-
-# 2. Wait for GitHub Actions to build the image (~2 min)
-#    Check: https://github.com/adamplansky/umbrel-downloader/actions
-
-# 3. Deploy to Umbrel
-make deploy
+make release   # Push to GitHub, triggers Docker build
+# Wait ~2 min for build to complete
+make deploy    # Pull new image and restart app on Umbrel
 ```
 
-**First time?** After `make deploy`, go to Umbrel App Store → Local Apps → Install "File Downloader"
-
-### Configuration
-
-Edit `Makefile` to change your Umbrel host:
-```makefile
-UMBREL_HOST?=umbrel@192.168.2.104
-```
-
-Or override on command line:
-```bash
-make deploy UMBREL_HOST=umbrel@your-ip
-```
+Check build status: https://github.com/adamplansky/umbrel-downloader/actions
 
 ## Download Location
 
@@ -51,23 +45,20 @@ Files are downloaded to:
 /home/umbrel/umbrel/home/Downloads/movies/
 ```
 
-This is the same folder used by Jellyfin, so downloaded movies appear automatically.
+Same folder as Jellyfin - downloaded movies appear automatically.
 
 ## Local Development
 
 ```bash
-# Build and run locally
-make run
-
-# Open http://localhost:8080
+make run       # Build and run on http://localhost:8080
 ```
 
 ## Commands
 
 ```bash
-make help      # Show all available commands
+make help      # Show all commands
 make build     # Build binary
 make run       # Run locally on :8080
 make release   # Push to GitHub (triggers Docker build)
-make deploy    # Deploy to Umbrel
+make deploy    # Pull image & restart app on Umbrel
 ```

@@ -1,5 +1,5 @@
-manifestVersion: 1
-id: file-downloader
+manifestVersion: 1.1
+id: adamplansky-file-downloader
 category: files
 name: File Downloader
 version: "1.0.0"
@@ -9,21 +9,18 @@ description: >-
   Paste URLs and download files directly to your Umbrel.
   Features include download progress tracking, download history,
   and duplicate detection to avoid re-downloading the same files.
-developer: Adam
-website: https://github.com/your-username/umbrel-downloader
+developer: Adam Plansky
+website: https://github.com/adamplansky/umbrel-downloader
 dependencies: []
-repo: https://github.com/your-username/umbrel-downloader
-support: https://github.com/your-username/umbrel-downloader/issues
+repo: https://github.com/adamplansky/umbrel-downloader
+support: https://github.com/adamplansky/umbrel-downloader/issues
 port: 8080
-gallery:
-  - 1.jpg
-  - 2.jpg
-  - 3.jpg
+gallery: []
 releaseNotes: >-
   Initial release with web UI, download progress tracking,
   and download history.
 path: ""
 defaultUsername: ""
 defaultPassword: ""
-submitter: Adam
-submission: https://github.com/getumbrel/umbrel-apps/pull/XXX
+submitter: Adam Plansky
+submission: ""
