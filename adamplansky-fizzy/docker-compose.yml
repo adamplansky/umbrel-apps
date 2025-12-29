@@ -19,7 +19,7 @@ services:
     restart: on-failure
 
   server:
-    image: ghcr.io/basecamp/fizzy:main
+    image: ghcr.io/mauricewipf/fizzy-umbrel:754aaa5@sha256:3c74a27d749db915c76654bf7590b4d2eee5eeb9cb495e23a52ebe3c51b5e372
     volumes:
       - ${APP_DATA_DIR}/data/storage:/rails/storage
     environment:
