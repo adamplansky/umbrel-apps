@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="fizzy-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6B6B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF8E53;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" fill="url(#fizzy-bg)"/>
+
+  <!-- Kanban columns -->
+  <g fill="#ffffff">
+    <!-- Column 1 -->
+    <rect x="32" y="48" width="56" height="160" rx="8" opacity="0.9"/>
+    <!-- Column 2 -->
+    <rect x="100" y="48" width="56" height="160" rx="8" opacity="0.9"/>
+    <!-- Column 3 -->
+    <rect x="168" y="48" width="56" height="160" rx="8" opacity="0.9"/>
+  </g>
+
+  <!-- Cards in columns -->
+  <g>
+    <!-- Column 1 cards -->
+    <rect x="40" y="60" width="40" height="24" rx="4" fill="#FF6B6B"/>
+    <rect x="40" y="92" width="40" height="24" rx="4" fill="#4ECDC4"/>
+    <rect x="40" y="124" width="40" height="24" rx="4" fill="#45B7D1"/>
+
+    <!-- Column 2 cards -->
+    <rect x="108" y="60" width="40" height="24" rx="4" fill="#96CEB4"/>
+    <rect x="108" y="92" width="40" height="24" rx="4" fill="#FFEAA7"/>
+
+    <!-- Column 3 cards -->
+    <rect x="176" y="60" width="40" height="24" rx="4" fill="#DDA0DD"/>
+    <rect x="176" y="92" width="40" height="24" rx="4" fill="#98D8C8"/>
+    <rect x="176" y="124" width="40" height="24" rx="4" fill="#F7DC6F"/>
+    <rect x="176" y="156" width="40" height="24" rx="4" fill="#BB8FCE"/>
+  </g>
+</svg>

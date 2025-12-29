@@ -30,15 +30,34 @@ A simple file downloader with web UI. Downloads files directly to your Jellyfin 
 
 ---
 
+### Fizzy
+
+Kanban as it should be. Not as it has been.
+
+**Features:**
+- Fresh, modern Kanban board from 37signals (makers of Basecamp and HEY)
+- Colorful UI with smooth drag-and-drop
+- Auto-closing for inactive cards
+- Privacy-first project management
+- Perfect for personal use or small teams
+
+**Source:** [github.com/basecamp/fizzy](https://github.com/basecamp/fizzy)
+
+---
+
 ## Repository Structure
 
 ```
 ├── umbrel-app-store.yml              # App store manifest
-├── adamplansky-file-downloader/      # App definition for Umbrel
+├── adamplansky-file-downloader/      # File Downloader app
 │   ├── umbrel-app.yml
 │   ├── docker-compose.yml
 │   └── icon.svg
-├── file-downloader/                  # Source code
+├── adamplansky-fizzy/                # Fizzy Kanban app
+│   ├── umbrel-app.yml
+│   ├── docker-compose.yml
+│   └── icon.svg
+├── file-downloader/                  # Source code (File Downloader)
 │   ├── main.go
 │   ├── go.mod
 │   └── Dockerfile

@@ -1,0 +1,16 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: adamplansky-fizzy_web_1
+      APP_PORT: 80
+      PROXY_AUTH_ADD: 'false'
+
+  web:
+    image: ghcr.io/basecamp/fizzy:main
+    volumes:
+      - ${APP_DATA_DIR}/data:/rails/storage
+    environment:
+      SECRET_KEY_BASE: ${APP_SEED}
+    restart: on-failure
