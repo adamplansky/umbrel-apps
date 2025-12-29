@@ -4,6 +4,7 @@ category: files
 name: File Downloader
 version: "1.0.0"
 tagline: Simple file downloader with web UI
+icon: https://raw.githubusercontent.com/adamplansky/umbrel-downloader/main/adamplansky-file-downloader/images/icon.svg
 description: >-
   A lightweight file downloader with a beautiful web interface.
   Paste URLs and download files directly to your Umbrel.

@@ -4,6 +4,7 @@ category: social
 name: Fizzy
 version: "1.0.0"
 tagline: Kanban as it should be. Not as it has been.
+icon: https://raw.githubusercontent.com/adamplansky/umbrel-downloader/main/adamplansky-fizzy/images/icon.svg
 description: >-
   Fizzy is a fresh, modern, and delightfully simple Kanban board from 37signals
   (the makers of Basecamp and HEY). Tired of bloated tools like Trello or Jira?
