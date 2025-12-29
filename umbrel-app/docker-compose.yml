@@ -7,7 +7,7 @@ services:
       APP_PORT: 8080
 
   web:
-    image: ghcr.io/your-username/umbrel-downloader:latest
+    image: ghcr.io/adamplansky/umbrel-downloader:latest
     restart: on-failure
     stop_grace_period: 30s
     volumes:

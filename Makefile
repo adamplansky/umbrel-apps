@@ -65,27 +65,31 @@ push-tags:
 pushtoumbrel:
 	./install-local.sh
 
-# Deploy to Umbrel via SSH - single command does everything
+# Deploy to Umbrel via SSH - copies config and restarts app
+# Image is built by GitHub Actions and pulled from ghcr.io
 deploy:
 	@echo "=== Deploying to Umbrel ($(UMBREL_HOST)) ==="
 	@echo ""
-	@echo "[1/4] Copying source files..."
-	ssh $(UMBREL_HOST) "mkdir -p ~/umbrel-downloader"
-	scp Dockerfile main.go go.mod $(UMBREL_HOST):~/umbrel-downloader/
-	@echo ""
-	@echo "[2/4] Building Docker image..."
-	ssh $(UMBREL_HOST) "cd ~/umbrel-downloader && docker build -t file-downloader:latest ."
-	@echo ""
-	@echo "[3/4] Installing app..."
+	@echo "[1/3] Setting up app store..."
 	ssh $(UMBREL_HOST) "mkdir -p $(UMBREL_APP_DIR)"
 	ssh $(UMBREL_HOST) "test -f /home/umbrel/umbrel/app-stores/local-apps/umbrel-app-store.yml || echo -e 'id: local-apps\nname: Local Apps' > /home/umbrel/umbrel/app-stores/local-apps/umbrel-app-store.yml"
 	scp umbrel-app-local/docker-compose.yml umbrel-app-local/umbrel-app.yml $(UMBREL_HOST):$(UMBREL_APP_DIR)/
 	@echo ""
-	@echo "[4/4] Restarting app..."
-	ssh $(UMBREL_HOST) "cd ~/umbrel && sudo scripts/app restart local-apps-file-downloader 2>/dev/null || sudo scripts/app install local-apps-file-downloader 2>/dev/null || echo 'First time? Install from App Store -> Local Apps'"
+	@echo "[2/3] Pulling latest image..."
+	ssh $(UMBREL_HOST) "docker pull ghcr.io/adamplansky/umbrel-downloader:latest"
+	@echo ""
+	@echo "[3/3] Restarting app..."
+	ssh $(UMBREL_HOST) "cd ~/umbrel && sudo scripts/app restart local-apps-file-downloader 2>/dev/null || echo 'Not installed yet - install from App Store -> Local Apps'"
 	@echo ""
 	@echo "=== Done! ==="
 	@echo "Downloads go to: /home/umbrel/umbrel/home/Downloads/movies/"
+
+# Push to GitHub (triggers Docker build via GitHub Actions)
+release:
+	git push origin main
+	@echo ""
+	@echo "Pushed to GitHub. Docker image will be built automatically."
+	@echo "Once complete, run 'make deploy' to update Umbrel."
 
 # Format code
 fmt:
@@ -105,18 +109,22 @@ check: fmt vet test build
 # Show help
 help:
 	@echo "Available targets:"
+	@echo ""
+	@echo "Development:"
 	@echo "  build          - Build binary"
-	@echo "  build-linux    - Build for Linux amd64"
-	@echo "  build-arm64    - Build for Linux arm64 (Raspberry Pi)"
 	@echo "  run            - Build and run with web UI on :8080"
 	@echo "  clean          - Remove build artifacts"
-	@echo "  docker         - Build Docker image"
-	@echo "  docker-multiarch - Build multi-arch Docker image"
-	@echo "  docker-push    - Build and push Docker image"
-	@echo "  push           - Git push to main"
-	@echo "  push-tags      - Git push with tags"
-	@echo "  deploy         - Build, install & restart on Umbrel ($(UMBREL_HOST))"
 	@echo "  fmt            - Format code"
 	@echo "  vet            - Vet code"
 	@echo "  test           - Run tests"
 	@echo "  check          - Run fmt, vet, test, build"
+	@echo ""
+	@echo "Docker:"
+	@echo "  docker         - Build Docker image locally"
+	@echo "  docker-multiarch - Build multi-arch Docker image"
+	@echo ""
+	@echo "Umbrel deployment:"
+	@echo "  release        - Push to GitHub (triggers image build)"
+	@echo "  deploy         - Pull image & restart app on Umbrel ($(UMBREL_HOST))"
+	@echo ""
+	@echo "Workflow: make changes -> make release -> wait for build -> make deploy"

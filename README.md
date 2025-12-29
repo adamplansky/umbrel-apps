@@ -15,19 +15,20 @@ A simple file downloader with web UI for Umbrel OS. Downloads files directly to 
 ### Prerequisites
 
 - SSH access to your Umbrel device
-- SSH key configured (or you'll be prompted for password)
+- GitHub repository with Actions enabled
 
-### One-command deploy
+### Workflow
 
 ```bash
+# 1. Make your changes, then push to GitHub
+make release
+
+# 2. Wait for GitHub Actions to build the image (~2 min)
+#    Check: https://github.com/adamplansky/umbrel-downloader/actions
+
+# 3. Deploy to Umbrel
 make deploy
 ```
-
-This will:
-1. Copy source files to Umbrel
-2. Build Docker image on the device
-3. Install the app to local app store
-4. Restart the app
 
 **First time?** After `make deploy`, go to Umbrel App Store → Local Apps → Install "File Downloader"
 
@@ -61,11 +62,12 @@ make run
 # Open http://localhost:8080
 ```
 
-## Other Commands
+## Commands
 
 ```bash
 make help      # Show all available commands
 make build     # Build binary
-make docker    # Build Docker image locally
-make clean     # Remove build artifacts
+make run       # Run locally on :8080
+make release   # Push to GitHub (triggers Docker build)
+make deploy    # Deploy to Umbrel
 ```
