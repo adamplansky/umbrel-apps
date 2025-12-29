@@ -4,17 +4,17 @@ category: files
 name: File Downloader
 version: "1.0.0"
 tagline: Simple file downloader with web UI
-icon: https://raw.githubusercontent.com/adamplansky/umbrel-downloader/main/adamplansky-file-downloader/images/icon.svg
+icon: https://raw.githubusercontent.com/adamplansky/umbrel-apps/main/adamplansky-file-downloader/images/icon.svg
 description: >-
   A lightweight file downloader with a beautiful web interface.
   Paste URLs and download files directly to your Umbrel.
   Features include download progress tracking, download history,
   and duplicate detection to avoid re-downloading the same files.
 developer: Adam Plansky
-website: https://github.com/adamplansky/umbrel-downloader
+website: https://github.com/adamplansky/umbrel-apps
 dependencies: []
-repo: https://github.com/adamplansky/umbrel-downloader
-support: https://github.com/adamplansky/umbrel-downloader/issues
+repo: https://github.com/adamplansky/umbrel-apps
+support: https://github.com/adamplansky/umbrel-apps/issues
 port: 8080
 gallery: []
 releaseNotes: >-
