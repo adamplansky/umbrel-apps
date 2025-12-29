@@ -52,11 +52,11 @@ Kanban as it should be. Not as it has been.
 ├── adamplansky-file-downloader/      # File Downloader app
 │   ├── umbrel-app.yml
 │   ├── docker-compose.yml
-│   └── icon.svg
+│   └── images/icon.svg
 ├── adamplansky-fizzy/                # Fizzy Kanban app
 │   ├── umbrel-app.yml
 │   ├── docker-compose.yml
-│   └── icon.svg
+│   └── images/icon.svg
 ├── file-downloader/                  # Source code (File Downloader)
 │   ├── main.go
 │   ├── go.mod
@@ -77,7 +77,7 @@ make help      # Show all commands
 ## Adding a New App
 
 1. Create app folder: `adamplansky-<app-name>/`
-2. Add `umbrel-app.yml`, `docker-compose.yml`, `icon.svg`
+2. Add `umbrel-app.yml`, `docker-compose.yml`, `images/icon.svg`
 3. Create source folder: `<app-name>/` with code and Dockerfile
 4. Update GitHub Actions if needed
 5. `make release` to push
