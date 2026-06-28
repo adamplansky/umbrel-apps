@@ -76,8 +76,11 @@ deploy:
 		sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest && \
 		sudo docker pull ghcr.io/adamplansky/umbrel-downloader:latest && \
 		echo '' && \
-		echo '[3/3] Restarting app...' && \
-		(sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet') \
+		echo '[3/4] Restarting app...' && \
+		(sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet') && \
+		echo '' && \
+		echo '[4/4] Checking container mounts...' && \
+		sudo docker inspect adamplansky-file-downloader_web_1 --format '{{range .Mounts}}{{println .Source \"->\" .Destination}}{{end}}' \
 	"
 	@echo ""
 	@echo "=== Done! ==="

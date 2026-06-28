@@ -139,6 +139,20 @@ sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader
 
 If the UI still looks old after pulling the image, uninstall and reinstall the app from the Umbrel UI so Umbrel reloads the updated `docker-compose.yml` from this app store.
 
+After updating, verify that `/downloads` points to the media folder:
+
+```bash
+sudo docker inspect adamplansky-file-downloader_web_1 --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+```
+
+Correct mount:
+
+```text
+/home/umbrel/umbrel/home/Downloads/media -> /downloads
+```
+
+If it still says `Downloads/movies -> /downloads`, Umbrel is still using an old cached `docker-compose.yml`. Remove and reinstall the app from the Umbrel UI so the updated compose is loaded, then restore `webshare.env` if Umbrel removed app data during uninstall.
+
 By default `make deploy` connects to `umbrel@umbrel.home.arpa`. If your Umbrel uses a different hostname or IP, override it:
 
 ```bash
