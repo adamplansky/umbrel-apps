@@ -185,6 +185,20 @@ func validEnvKey(key string) bool {
 	return true
 }
 
+func configuredMaxConcurrentDownloads(flagValue int) int {
+	if flagValue > 0 {
+		return flagValue
+	}
+	if value := strings.TrimSpace(os.Getenv("MAX_CONCURRENT_DOWNLOADS")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+		fmt.Fprintf(os.Stderr, "Warning: invalid MAX_CONCURRENT_DOWNLOADS=%q, using %d\n", value, defaultMaxConcurrentDownloads)
+	}
+	return defaultMaxConcurrentDownloads
+}
+
 func loadHistory(historyFile string) (*History, bool, error) {
 	history := &History{
 		Downloads:       make(map[string]DownloadRecord),
@@ -315,13 +329,18 @@ type ActiveDownload struct {
 	ID         string             `json:"id"`
 	URL        string             `json:"url"`
 	Filename   string             `json:"filename"`
+	State      string             `json:"state"`
+	Order      int                `json:"order"`
 	Progress   int64              `json:"progress"`
 	Total      int64              `json:"total"`
 	Speed      int64              `json:"speed"` // bytes per second
 	StartedAt  time.Time          `json:"started_at"`
 	OutputPath string             `json:"-"`
+	Context    context.Context    `json:"-"`
 	CancelFunc context.CancelFunc `json:"-"`
 }
+
+const defaultMaxConcurrentDownloads = 5
 
 // Web server state
 type WebDownloader struct {
@@ -331,6 +350,9 @@ type WebDownloader struct {
 	historyMu   sync.RWMutex
 
 	downloads   map[string]*ActiveDownload
+	queue       []string
+	running     int
+	maxRunning  int
 	downloadsMu sync.RWMutex
 	nextID      int
 }
@@ -343,9 +365,9 @@ func (wd *WebDownloader) getActiveDownloads() []ActiveDownload {
 	for _, d := range wd.downloads {
 		result = append(result, *d)
 	}
-	// Sort by start time (oldest first - keeps stable order)
+	// Sort by queue order (oldest first - keeps stable order)
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].StartedAt.Before(result[j].StartedAt)
+		return result[i].Order < result[j].Order
 	})
 	return result
 }
@@ -466,36 +488,82 @@ func (wd *WebDownloader) startDownload(rawURL string) (string, error) {
 		ID:         id,
 		URL:        rawURL,
 		Filename:   filename,
+		State:      "queued",
+		Order:      wd.nextID,
 		StartedAt:  time.Now(),
+		Context:    ctx,
 		CancelFunc: cancel,
 	}
+	wd.queue = append(wd.queue, id)
 	wd.downloadsMu.Unlock()
 
-	go func() {
-		defer func() {
-			wd.downloadsMu.Lock()
-			delete(wd.downloads, id)
-			wd.downloadsMu.Unlock()
-		}()
+	wd.startQueuedDownloads()
 
-		outputPath, size, err := wd.downloadFile(ctx, id, rawURL)
-		if err != nil {
+	return id, nil
+}
+
+func (wd *WebDownloader) startQueuedDownloads() {
+	for {
+		wd.downloadsMu.Lock()
+		if wd.running >= wd.maxRunning {
+			wd.downloadsMu.Unlock()
 			return
 		}
 
-		wd.historyMu.Lock()
-		wd.history.Downloads[rawURL] = DownloadRecord{
-			URL:        rawURL,
-			Filename:   outputPath,
-			Downloaded: time.Now(),
-			Size:       size,
+		var d *ActiveDownload
+		for len(wd.queue) > 0 {
+			id := wd.queue[0]
+			wd.queue = wd.queue[1:]
+			candidate, ok := wd.downloads[id]
+			if ok && candidate.State == "queued" {
+				d = candidate
+				break
+			}
 		}
-		wd.history.DownloadedFiles[filename] = rawURL
-		saveHistory(wd.historyFile, wd.history)
-		wd.historyMu.Unlock()
+		if d == nil {
+			wd.downloadsMu.Unlock()
+			return
+		}
+
+		d.State = "downloading"
+		d.StartedAt = time.Now()
+		wd.running++
+		id := d.ID
+		rawURL := d.URL
+		ctx := d.Context
+		wd.downloadsMu.Unlock()
+
+		go wd.runDownload(ctx, id, rawURL)
+	}
+}
+
+func (wd *WebDownloader) runDownload(ctx context.Context, id, rawURL string) {
+	filename := filenameFromURL(rawURL)
+	defer func() {
+		wd.downloadsMu.Lock()
+		if d, ok := wd.downloads[id]; ok && d.State == "downloading" {
+			wd.running--
+		}
+		delete(wd.downloads, id)
+		wd.downloadsMu.Unlock()
+		wd.startQueuedDownloads()
 	}()
 
-	return id, nil
+	outputPath, size, err := wd.downloadFile(ctx, id, rawURL)
+	if err != nil {
+		return
+	}
+
+	wd.historyMu.Lock()
+	wd.history.Downloads[rawURL] = DownloadRecord{
+		URL:        rawURL,
+		Filename:   outputPath,
+		Downloaded: time.Now(),
+		Size:       size,
+	}
+	wd.history.DownloadedFiles[filename] = rawURL
+	saveHistory(wd.historyFile, wd.history)
+	wd.historyMu.Unlock()
 }
 
 func (wd *WebDownloader) cancelDownload(id string) {
@@ -507,7 +575,9 @@ func (wd *WebDownloader) cancelDownload(id string) {
 		if d.OutputPath != "" {
 			os.Remove(d.OutputPath)
 		}
-		delete(wd.downloads, id)
+		if d.State == "queued" {
+			delete(wd.downloads, id)
+		}
 	}
 	wd.downloadsMu.Unlock()
 }
@@ -1595,7 +1665,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 alert('Failed: ' + await resp.text());
                 return;
             }
-            document.getElementById('series-status').textContent = 'Started ' + urls.length + ' downloads.';
+            document.getElementById('series-status').textContent = 'Queued ' + urls.length + ' downloads. Up to 5 run at the same time.';
             if (!polling) pollProgress();
         }
 
@@ -1619,13 +1689,17 @@ const htmlTemplate = `<!DOCTYPE html>
                     section.style.display = 'block';
                     list.innerHTML = downloads.map(d => {
                         const pct = d.total > 0 ? (d.progress / d.total * 100) : 0;
+                        const state = d.state || 'downloading';
+                        const progressText = state === 'queued'
+                            ? 'Queued - waiting for an open download slot'
+                            : pct.toFixed(1) + '% - ' + formatBytes(d.progress) + ' / ' + formatBytes(d.total) + ' - ' + formatBytes(d.speed) + '/s';
                         return '<div class="download-item" id="dl-' + d.id + '">' +
                             '<div class="download-header">' +
                                 '<span class="download-filename">' + escapeHtml(d.filename) + '</span>' +
                                 '<button class="btn-danger" onclick="cancelDownload(\'' + d.id + '\')">Cancel</button>' +
                             '</div>' +
                             '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>' +
-                            '<div class="progress-text">' + pct.toFixed(1) + '% - ' + formatBytes(d.progress) + ' / ' + formatBytes(d.total) + ' - ' + formatBytes(d.speed) + '/s</div>' +
+                            '<div class="progress-text">' + escapeHtml(progressText) + '</div>' +
                         '</div>';
                     }).join('');
                     setTimeout(poll, 500);
@@ -1695,7 +1769,7 @@ const htmlTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
-func startWebServer(addr, outputDir, historyFile string) {
+func startWebServer(addr, outputDir, historyFile string, maxConcurrent int) {
 	history, _, err := loadHistory(historyFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading history: %v\n", err)
@@ -1707,6 +1781,7 @@ func startWebServer(addr, outputDir, historyFile string) {
 		historyFile: historyFile,
 		history:     history,
 		downloads:   make(map[string]*ActiveDownload),
+		maxRunning:  maxConcurrent,
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -1826,6 +1901,7 @@ func startWebServer(addr, outputDir, historyFile string) {
 	})
 
 	fmt.Printf("Starting web server at http://%s\n", addr)
+	fmt.Printf("Max concurrent downloads: %d\n", maxConcurrent)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
@@ -1838,6 +1914,7 @@ func main() {
 	force := flag.Bool("f", false, "Force re-download even if already downloaded")
 	listHistory := flag.Bool("list", false, "List download history")
 	webAddr := flag.String("web", "", "Start web UI on this address (e.g., :8080)")
+	maxConcurrent := flag.Int("max-concurrent", 0, "Maximum concurrent web downloads (default 5, or MAX_CONCURRENT_DOWNLOADS)")
 	flag.Parse()
 
 	if loaded, err := loadEnvFiles("/data/webshare.env", "/data/.env", ".env"); err != nil {
@@ -1862,7 +1939,7 @@ func main() {
 
 	// Web server mode
 	if *webAddr != "" {
-		startWebServer(*webAddr, *outputDir, *historyFile)
+		startWebServer(*webAddr, *outputDir, *historyFile, configuredMaxConcurrentDownloads(*maxConcurrent))
 		return
 	}
 

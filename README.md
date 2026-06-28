@@ -25,7 +25,7 @@ A file and series downloader with web UI. Downloads files directly to your Jelly
 - Series Search tab: TVmaze episode lookup + Webshare matching
 - Per-episode candidate selection before downloading
 - One-click download for all selected episodes
-- Multiple concurrent downloads
+- Download queue with up to 5 concurrent downloads
 - Progress bars with download speed
 - Download history
 - Cancel downloads (auto-cleanup of partial files)
@@ -47,6 +47,7 @@ Put this in the file:
 ```env
 WEBSHARE_USERNAME="your-email-or-username"
 WEBSHARE_PASSWORD="your-password"
+MAX_CONCURRENT_DOWNLOADS="5"
 ```
 
 Then restart the app from Umbrel UI, or over SSH:
@@ -68,6 +69,8 @@ WEBSHARE_WST="your-webshare-token"
 ```
 
 For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
+
+`MAX_CONCURRENT_DOWNLOADS` controls how many downloads run at once from the queue. The default is `5`; higher values can overload your Umbrel, Webshare, or network.
 
 **Verify Webshare login on Umbrel:**
 
