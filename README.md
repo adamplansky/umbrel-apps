@@ -69,6 +69,36 @@ WEBSHARE_WST="your-webshare-token"
 
 For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
 
+**Verify Webshare login on Umbrel:**
+
+Check that the env file exists on the host:
+
+```bash
+sudo test -f /home/umbrel/umbrel/app-data/adamplansky-file-downloader/data/webshare.env && echo "webshare.env exists"
+```
+
+If that path does not exist, ask Docker where the app's `/data` directory is mounted:
+
+```bash
+sudo docker inspect adamplansky-file-downloader_web_1 --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+```
+
+Use the host path that points to `/data`, then create `webshare.env` inside it.
+
+Check that the running container sees the variables without printing secrets:
+
+```bash
+sudo docker exec adamplansky-file-downloader_web_1 sh -c '[ -n "$WEBSHARE_USERNAME" ] && echo "WEBSHARE_USERNAME set" || echo "WEBSHARE_USERNAME missing"; [ -n "$WEBSHARE_PASSWORD" ] && echo "WEBSHARE_PASSWORD set" || echo "WEBSHARE_PASSWORD missing"; [ -n "$WEBSHARE_WST" ] && echo "WEBSHARE_WST set" || true'
+```
+
+Check the app-level Webshare status endpoint:
+
+```bash
+curl -s http://127.0.0.1:8080/api/webshare/status
+```
+
+In the Series Search tab, the app also shows whether fast Webshare downloads are enabled.
+
 **Updating the app on Umbrel:**
 
 This app is published as `ghcr.io/adamplansky/umbrel-apps:latest`.

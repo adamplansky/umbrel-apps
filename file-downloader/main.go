@@ -647,6 +647,74 @@ type SeriesCandidate struct {
 	Error     string  `json:"error,omitempty"`
 }
 
+type WebshareStatus struct {
+	Configured      bool   `json:"configured"`
+	Authenticated   bool   `json:"authenticated"`
+	Mode            string `json:"mode"`
+	UsernamePresent bool   `json:"username_present"`
+	PasswordPresent bool   `json:"password_present"`
+	TokenPresent    bool   `json:"token_present"`
+	Message         string `json:"message"`
+	Error           string `json:"error,omitempty"`
+}
+
+func checkWebshareStatus(ctx context.Context) WebshareStatus {
+	username := strings.TrimSpace(os.Getenv("WEBSHARE_USERNAME"))
+	password := os.Getenv("WEBSHARE_PASSWORD")
+	token := strings.TrimSpace(os.Getenv("WEBSHARE_WST"))
+	status := WebshareStatus{
+		UsernamePresent: username != "",
+		PasswordPresent: password != "",
+		TokenPresent:    token != "",
+	}
+
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	ws := WebshareClient{
+		baseURL:    webshareBaseURL,
+		httpClient: httpClient,
+		token:      token,
+	}
+
+	switch {
+	case token != "":
+		status.Configured = true
+		status.Mode = "session token"
+		if _, err := ws.Search(ctx, "test", 0, 1); err != nil {
+			status.Message = "Webshare token is configured, but validation failed."
+			status.Error = err.Error()
+			return status
+		}
+		status.Authenticated = true
+		status.Message = "Webshare session token is configured and accepted."
+		return status
+	case username != "" || password != "":
+		status.Configured = true
+		status.Mode = "username/password"
+		if username == "" {
+			status.Message = "WEBSHARE_PASSWORD is set, but WEBSHARE_USERNAME is missing."
+			status.Error = "WEBSHARE_USERNAME is empty"
+			return status
+		}
+		if password == "" {
+			status.Message = "WEBSHARE_USERNAME is set, but WEBSHARE_PASSWORD is missing."
+			status.Error = "WEBSHARE_PASSWORD is empty"
+			return status
+		}
+		if _, err := ws.Login(ctx, username, password, false); err != nil {
+			status.Message = "Webshare username/password are configured, but login failed."
+			status.Error = err.Error()
+			return status
+		}
+		status.Authenticated = true
+		status.Message = "Webshare username/password are configured and login works."
+		return status
+	default:
+		status.Mode = "anonymous"
+		status.Message = "Webshare credentials are not configured. Searches run anonymously and downloads may be slow."
+		return status
+	}
+}
+
 func (wd *WebDownloader) searchSeries(ctx context.Context, req SeriesSearchRequest) ([]SeriesMatch, error) {
 	req.Query = strings.TrimSpace(req.Query)
 	if req.Query == "" && req.ShowID == 0 {
@@ -1261,6 +1329,12 @@ const htmlTemplate = `<!DOCTYPE html>
         .season-label { color: #d1d5db; font-size: 13px; font-weight: 700; padding: 0 4px; }
         .btn-small { padding: 7px 9px; font-size: 12px; border-radius: 5px; background: #334155; color: #eef2f7; }
         .selection-count { color: #9ca3af; font-size: 13px; margin-left: auto; }
+        .auth-status { border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: #0f172a; }
+        .auth-status.ok { border-color: #166534; background: #052e1a; }
+        .auth-status.warn { border-color: #92400e; background: #2a1705; }
+        .auth-status.error { border-color: #991b1b; background: #2a0b0b; }
+        .auth-title { font-weight: 700; margin-bottom: 4px; }
+        .auth-detail { color: #d1d5db; font-size: 13px; line-height: 1.35; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 820px) {
             body { padding: 14px; }
@@ -1326,6 +1400,10 @@ const htmlTemplate = `<!DOCTYPE html>
                 </div>
                 <button id="series-search-btn" class="btn-primary" onclick="searchSeries()">Search</button>
             </div>
+        </div>
+        <div id="webshare-auth-status" class="auth-status warn">
+            <div class="auth-title">Checking Webshare login...</div>
+            <div class="auth-detail">Verifying whether fast downloads are enabled.</div>
         </div>
         <div class="row">
             <div class="muted">Select episodes and candidate files, then start every selected download at once.</div>
@@ -1580,7 +1658,36 @@ const htmlTemplate = `<!DOCTYPE html>
             }).join('');
         }
 
+        async function loadWebshareStatus() {
+            const box = document.getElementById('webshare-auth-status');
+            if (!box) return;
+            try {
+                const resp = await fetch('/api/webshare/status');
+                const data = await resp.json();
+                box.classList.remove('ok', 'warn', 'error');
+                if (data.authenticated) {
+                    box.classList.add('ok');
+                    box.innerHTML = '<div class="auth-title">Fast Webshare downloads enabled</div>' +
+                        '<div class="auth-detail">' + escapeHtml(data.message) + ' Mode: ' + escapeHtml(data.mode) + '.</div>';
+                } else if (data.configured) {
+                    box.classList.add('error');
+                    box.innerHTML = '<div class="auth-title">Webshare login needs attention</div>' +
+                        '<div class="auth-detail">' + escapeHtml(data.message || data.error || 'Authentication failed.') + '</div>';
+                } else {
+                    box.classList.add('warn');
+                    box.innerHTML = '<div class="auth-title">Fast Webshare downloads are not configured</div>' +
+                        '<div class="auth-detail">' + escapeHtml(data.message) + '</div>';
+                }
+            } catch (err) {
+                box.classList.remove('ok', 'warn');
+                box.classList.add('error');
+                box.innerHTML = '<div class="auth-title">Could not check Webshare login</div>' +
+                    '<div class="auth-detail">' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
         loadHistory();
+        loadWebshareStatus();
         fetch('/api/progress').then(r => r.json()).then(data => {
             if (data.length > 0) pollProgress();
         });
@@ -1679,6 +1786,17 @@ func startWebServer(addr, outputDir, historyFile string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"started": started, "errors": errs})
+	})
+
+	http.HandleFunc("/api/webshare/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(checkWebshareStatus(ctx))
 	})
 
 	http.HandleFunc("/api/cancel", func(w http.ResponseWriter, r *http.Request) {
