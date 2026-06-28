@@ -17,16 +17,35 @@ Then go to **App Store** → **Adam's Apps** to install apps.
 
 ### File Downloader
 
-A simple file downloader with web UI. Downloads files directly to your Jellyfin movies folder.
+A file and series downloader with web UI. Downloads files directly to your Jellyfin movies folder.
 
 **Features:**
 - Web UI with dark theme
+- Manual URL downloads
+- Series Search tab: TVmaze episode lookup + Webshare matching
+- Per-episode candidate selection before downloading
+- One-click download for all selected episodes
 - Multiple concurrent downloads
 - Progress bars with download speed
 - Download history
 - Cancel downloads (auto-cleanup of partial files)
 
 **Download location:** `/home/umbrel/umbrel/home/Downloads/movies/`
+
+**Webshare login for fast downloads:**
+
+Set these environment variables for the app container:
+
+```bash
+WEBSHARE_USERNAME="your-email-or-username"
+WEBSHARE_PASSWORD="your-password"
+```
+
+Or use an existing session token:
+
+```bash
+WEBSHARE_WST="your-webshare-token"
+```
 
 ---
 
@@ -61,6 +80,9 @@ Kanban as it should be. Not as it has been.
 │   ├── main.go
 │   ├── go.mod
 │   └── Dockerfile
+├── csfdmeta/                         # TV series metadata CLI
+├── webshare-search/                  # Webshare search/download URL CLI
+├── series-linker/                    # CLI pipeline: episodes -> Webshare URLs
 └── Makefile
 ```
 

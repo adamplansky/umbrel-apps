@@ -3,13 +3,14 @@ id: adamplansky-file-downloader
 category: files
 name: File Downloader
 version: "1.0.0"
-tagline: Simple file downloader with web UI
+tagline: File and series downloader with Webshare search
 icon: https://raw.githubusercontent.com/adamplansky/umbrel-apps/main/adamplansky-file-downloader/images/icon.svg
 description: >-
-  A lightweight file downloader with a beautiful web interface.
-  Paste URLs and download files directly to your Umbrel.
-  Features include download progress tracking, download history,
-  and duplicate detection to avoid re-downloading the same files.
+  A lightweight downloader with a web interface.
+  Paste direct URLs or search a TV series, review episode matches from Webshare,
+  choose the files you want, and download selected episodes directly to your Umbrel.
+  Features include download progress tracking, download history, duplicate detection,
+  TVmaze episode lookup, and Webshare-powered series matching.
 developer: Adam Plansky
 website: https://github.com/adamplansky/umbrel-apps
 dependencies: []
@@ -18,8 +19,8 @@ support: https://github.com/adamplansky/umbrel-apps/issues
 port: 8080
 gallery: []
 releaseNotes: >-
-  Initial release with web UI, download progress tracking,
-  and download history.
+  Added a Series Search tab with TVmaze episode lookup, Webshare matching,
+  candidate selection, and one-click selected episode downloads.
 path: ""
 defaultUsername: ""
 defaultPassword: ""
