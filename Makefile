@@ -10,7 +10,7 @@ IMAGE_NAME?=$(REGISTRY)/$(shell basename $(CURDIR))
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 # Umbrel SSH
-UMBREL_HOST?=umbrel@192.168.2.104
+UMBREL_HOST?=umbrel@umbrel.home.arpa
 
 # Build flags
 LDFLAGS=-ldflags="-s -w -X main.Version=$(VERSION)"
@@ -68,11 +68,17 @@ pushtoumbrel:
 deploy:
 	@echo "=== Updating app on Umbrel ($(UMBREL_HOST)) ==="
 	@echo ""
-	@echo "[1/2] Pulling latest image..."
-	ssh -t $(UMBREL_HOST) "sudo docker pull ghcr.io/adamplansky/umbrel-downloader:latest"
+	@echo "[1/4] Checking SSH connection..."
+	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "echo connected"
 	@echo ""
-	@echo "[2/2] Restarting app..."
-	ssh -t $(UMBREL_HOST) "sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet'"
+	@echo "[2/4] Checking sudo access..."
+	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo -v"
+	@echo ""
+	@echo "[3/4] Pulling latest image..."
+	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest"
+	@echo ""
+	@echo "[4/4] Restarting app..."
+	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet'"
 	@echo ""
 	@echo "=== Done! ==="
 

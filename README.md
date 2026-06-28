@@ -6,7 +6,7 @@ A community app store for Umbrel OS.
 
 1. Click **⋮** (three dots, top-right corner)
 2. Select **Community App Stores**
-3. Add: `https://github.com/adamplansky/umbrel-downloader`
+3. Add: `https://github.com/adamplansky/umbrel-apps`
 4. Click **Add**
 
 Then go to **App Store** → **Adam's Apps** to install apps.
@@ -37,7 +37,7 @@ A file and series downloader with web UI. Downloads files directly to your Jelly
 On Umbrel, SSH into the device and create a persistent env file in the app data folder:
 
 ```bash
-ssh umbrel@umbrel.local
+ssh umbrel@umbrel.home.arpa
 mkdir -p /home/umbrel/umbrel/app-data/adamplansky-file-downloader/data
 nano /home/umbrel/umbrel/app-data/adamplansky-file-downloader/data/webshare.env
 ```
@@ -68,6 +68,34 @@ WEBSHARE_WST="your-webshare-token"
 ```
 
 For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
+
+**Updating the app on Umbrel:**
+
+This app is published as `ghcr.io/adamplansky/umbrel-apps:latest`.
+
+```bash
+sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest
+sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader
+```
+
+If the UI still looks old after pulling the image, uninstall and reinstall the app from the Umbrel UI so Umbrel reloads the updated `docker-compose.yml` from this app store.
+
+By default `make deploy` connects to `umbrel@umbrel.home.arpa`. If your Umbrel uses a different hostname or IP, override it:
+
+```bash
+make deploy UMBREL_HOST=umbrel@your-umbrel-hostname-or-ip
+```
+
+If you are already SSHed into Umbrel, run the Docker commands directly on Umbrel instead of `make deploy` from your workstation.
+
+If `make deploy` appears stuck during the pull step, run the same steps manually to see whether SSH or `sudo` is waiting for input:
+
+```bash
+ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "echo connected"
+ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo -v"
+ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest"
+ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader"
+```
 
 ---
 
