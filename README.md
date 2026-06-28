@@ -48,6 +48,7 @@ Put this in the file:
 WEBSHARE_USERNAME="your-email-or-username"
 WEBSHARE_PASSWORD="your-password"
 MAX_CONCURRENT_DOWNLOADS="5"
+SERIES_SEARCH_CONCURRENCY="5"
 ```
 
 Then restart the app from Umbrel UI, or over SSH:
@@ -71,6 +72,8 @@ WEBSHARE_WST="your-webshare-token"
 For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
 
 `MAX_CONCURRENT_DOWNLOADS` controls how many downloads run at once from the queue. The default is `5`; higher values can overload your Umbrel, Webshare, or network.
+
+`SERIES_SEARCH_CONCURRENCY` controls how many episodes are searched in parallel. The default is `5`; the Series Search UI can also override this per search with the Search speed dropdown.
 
 **Verify Webshare login on Umbrel:**
 

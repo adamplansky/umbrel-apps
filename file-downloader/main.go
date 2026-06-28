@@ -199,6 +199,26 @@ func configuredMaxConcurrentDownloads(flagValue int) int {
 	return defaultMaxConcurrentDownloads
 }
 
+func configuredSeriesSearchConcurrency(value int) int {
+	if value <= 0 {
+		if envValue := strings.TrimSpace(os.Getenv("SERIES_SEARCH_CONCURRENCY")); envValue != "" {
+			parsed, err := strconv.Atoi(envValue)
+			if err == nil {
+				value = parsed
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: invalid SERIES_SEARCH_CONCURRENCY=%q, using %d\n", envValue, defaultSeriesSearchConcurrency)
+			}
+		}
+	}
+	if value <= 0 {
+		return defaultSeriesSearchConcurrency
+	}
+	if value > maxSeriesSearchConcurrency {
+		return maxSeriesSearchConcurrency
+	}
+	return value
+}
+
 func loadHistory(historyFile string) (*History, bool, error) {
 	history := &History{
 		Downloads:       make(map[string]DownloadRecord),
@@ -340,7 +360,11 @@ type ActiveDownload struct {
 	CancelFunc context.CancelFunc `json:"-"`
 }
 
-const defaultMaxConcurrentDownloads = 5
+const (
+	defaultMaxConcurrentDownloads  = 5
+	defaultSeriesSearchConcurrency = 5
+	maxSeriesSearchConcurrency     = 20
+)
 
 // Web server state
 type WebDownloader struct {
@@ -607,6 +631,7 @@ type SeriesSearchRequest struct {
 	ShowID           int     `json:"show_id"`
 	SearchLimit      int     `json:"search_limit"`
 	Candidates       int     `json:"candidates"`
+	Concurrency      int     `json:"concurrency"`
 	MinScore         float64 `json:"min_score"`
 	PreferredQuality string  `json:"preferred_quality"`
 }
@@ -820,10 +845,34 @@ func (wd *WebDownloader) searchSeries(ctx context.Context, req SeriesSearchReque
 		return nil, err
 	}
 
-	matches := make([]SeriesMatch, 0, len(episodes))
-	for _, episode := range episodes {
-		matches = append(matches, linkSeriesEpisode(ctx, ws, show, episode, req))
+	concurrency := configuredSeriesSearchConcurrency(req.Concurrency)
+	if concurrency > len(episodes) && len(episodes) > 0 {
+		concurrency = len(episodes)
 	}
+
+	matches := make([]SeriesMatch, len(episodes))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for worker := 0; worker < concurrency; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				matches[idx] = linkSeriesEpisode(ctx, ws, show, episodes[idx], req)
+			}
+		}()
+	}
+	for idx := range episodes {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return nil, ctx.Err()
+		case jobs <- idx:
+		}
+	}
+	close(jobs)
+	wg.Wait()
 	return matches, nil
 }
 
@@ -1348,33 +1397,40 @@ const htmlTemplate = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * { box-sizing: border-box; }
-        body { font-family: system-ui, sans-serif; max-width: 1180px; margin: 0 auto; padding: 20px; background: #171923; color: #eef2f7; }
-        h1, h2 { color: #38bdf8; }
-        h1 { margin-bottom: 12px; }
-        h2 { border-bottom: 1px solid #30384a; padding-bottom: 10px; margin: 24px 0 15px; }
-        input, select { padding: 12px; border: 1px solid #334155; border-radius: 6px; background: #111827; color: #eef2f7; font-size: 15px; min-width: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; max-width: 1180px; margin: 0 auto; padding: 24px; background: #0b0f17; color: #f5f7fb; }
+        h1, h2 { color: #f5f7fb; letter-spacing: 0; }
+        h1 { margin: 0 0 16px; font-size: 30px; font-weight: 750; }
+        h2 { border-bottom: 1px solid rgba(148, 163, 184, 0.2); padding-bottom: 10px; margin: 24px 0 15px; font-size: 20px; }
+        input, select { padding: 13px 14px; border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 8px; background: rgba(15, 23, 42, 0.78); color: #f5f7fb; font-size: 15px; min-width: 0; outline: none; }
+        input:focus, select:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18); }
         input[type="text"] { width: 100%; }
-        label { display: block; font-size: 13px; font-weight: 700; color: #d1d5db; margin-bottom: 6px; }
-        button { padding: 12px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: 700; white-space: nowrap; }
+        label { display: block; font-size: 13px; font-weight: 650; color: #d7dde8; margin-bottom: 7px; }
+        button { padding: 13px 18px; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 700; white-space: nowrap; transition: transform 0.12s, background 0.15s, opacity 0.15s; }
+        button:hover { transform: translateY(-1px); }
         button:disabled { opacity: 0.55; cursor: not-allowed; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 10px; border-bottom: 1px solid #30384a; text-align: left; vertical-align: top; }
         th { color: #9ca3af; font-size: 12px; text-transform: uppercase; }
-        .tabs { display: flex; gap: 8px; margin: 12px 0 20px; border-bottom: 1px solid #30384a; }
-        .tab { background: transparent; color: #9ca3af; border-radius: 6px 6px 0 0; padding: 10px 14px; }
-        .tab.active { background: #1f2937; color: #38bdf8; }
+        .tabs { display: inline-flex; gap: 4px; margin: 4px 0 20px; padding: 4px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 10px; }
+        .tab { background: transparent; color: #9ca3af; border-radius: 7px; padding: 10px 14px; }
+        .tab.active { background: #f5f7fb; color: #0b0f17; }
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
         .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 14px; align-items: center; }
-        .series-form { background: #1f2937; border: 1px solid #30384a; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-        .series-controls { display: grid; grid-template-columns: minmax(260px, 1fr) 160px 180px 180px auto; gap: 12px; align-items: end; }
+        .series-form { background: rgba(17, 24, 39, 0.82); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 10px; padding: 18px; margin-bottom: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.24); }
+        .series-controls { display: grid; grid-template-columns: minmax(280px, 1fr) 150px auto; gap: 12px; align-items: end; }
+        .advanced { margin-top: 14px; border-top: 1px solid rgba(148, 163, 184, 0.14); padding-top: 12px; }
+        .advanced summary { cursor: pointer; color: #9ca3af; font-size: 13px; font-weight: 650; width: fit-content; }
+        .advanced-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
         .field-help { margin-top: 6px; font-size: 12px; color: #9ca3af; line-height: 1.35; }
-        .btn-primary { background: #38bdf8; color: #07111f; }
-        .btn-secondary { background: #334155; color: #eef2f7; }
+        .btn-primary { background: #f5f7fb; color: #0b0f17; box-shadow: 0 10px 24px rgba(245, 247, 251, 0.12); }
+        .btn-primary:hover { background: #ffffff; }
+        .btn-secondary { background: #1f2937; color: #eef2f7; border: 1px solid rgba(148, 163, 184, 0.18); }
+        .btn-download { background: #34d399; color: #04130d; padding: 14px 20px; box-shadow: 0 12px 28px rgba(52, 211, 153, 0.18); }
+        .btn-download:hover { background: #6ee7b7; }
         .btn-danger { background: #ef4444; color: #fff; padding: 8px 14px; font-size: 14px; }
-        .btn-primary:hover { background: #0ea5e9; }
         .btn-danger:hover { background: #dc2626; }
-        .download-item, .history-item, .series-results { background: #1f2937; border-radius: 8px; padding: 15px; margin-bottom: 10px; }
+        .download-item, .history-item, .series-results { background: rgba(17, 24, 39, 0.82); border: 1px solid rgba(148, 163, 184, 0.14); border-radius: 10px; padding: 15px; margin-bottom: 10px; }
         .download-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
         .download-filename { font-weight: bold; color: #38bdf8; word-break: break-all; }
         .progress-bar { height: 18px; background: #0f172a; border-radius: 10px; overflow: hidden; margin: 8px 0; }
@@ -1399,8 +1455,9 @@ const htmlTemplate = `<!DOCTYPE html>
         .season-label { color: #d1d5db; font-size: 13px; font-weight: 700; padding: 0 4px; }
         .btn-small { padding: 7px 9px; font-size: 12px; border-radius: 5px; background: #334155; color: #eef2f7; }
         .selection-count { color: #9ca3af; font-size: 13px; margin-left: auto; }
-        .auth-status { border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: #0f172a; }
-        .auth-status.ok { border-color: #166534; background: #052e1a; }
+        .auth-status { display: none; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; background: #0f172a; }
+        .auth-status.visible { display: block; }
+        .auth-status.ok { display: none; border-color: #166534; background: #052e1a; }
         .auth-status.warn { border-color: #92400e; background: #2a1705; }
         .auth-status.error { border-color: #991b1b; background: #2a0b0b; }
         .auth-title { font-weight: 700; margin-bottom: 4px; }
@@ -1408,7 +1465,7 @@ const htmlTemplate = `<!DOCTYPE html>
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 820px) {
             body { padding: 14px; }
-            .row, .series-controls { grid-template-columns: 1fr; }
+            .row, .series-controls, .advanced-grid { grid-template-columns: 1fr; }
             table, thead, tbody, tr, th, td { display: block; }
             thead { display: none; }
             td { border-bottom: none; padding: 6px 0; }
@@ -1437,47 +1494,56 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div>
                     <label for="series-query">Series title</label>
                     <input type="text" id="series-query" placeholder="Pripady 1 oddeleni" onkeypress="if(event.key==='Enter')searchSeries()">
-                    <div class="field-help">Finds the show, loads episodes, then searches Webshare for each episode.</div>
                 </div>
                 <div>
-                    <label for="series-quality">Preferred quality</label>
+                    <label for="series-quality">Quality</label>
                     <select id="series-quality">
                         <option value="">Any</option>
-                        <option value="1080p">1080p</option>
+                        <option value="1080p" selected>1080p</option>
                         <option value="720p">720p</option>
                         <option value="2160p">2160p / 4K</option>
                         <option value="x265">x265</option>
                     </select>
-                    <div class="field-help">Used as a ranking hint.</div>
-                </div>
-                <div>
-                    <label for="series-limit">Search depth</label>
-                    <select id="series-limit">
-                        <option value="4">Fast - 4 results</option>
-                        <option value="8" selected>Balanced - 8 results</option>
-                        <option value="12">Deep - 12 results</option>
-                    </select>
-                    <div class="field-help">More results can improve matching but takes longer.</div>
-                </div>
-                <div>
-                    <label for="series-candidates">File choices</label>
-                    <select id="series-candidates">
-                        <option value="3">Simple - 3 per episode</option>
-                        <option value="5" selected>Normal - 5 per episode</option>
-                        <option value="8">Detailed - 8 per episode</option>
-                    </select>
-                    <div class="field-help">How many downloadable options to show.</div>
                 </div>
                 <button id="series-search-btn" class="btn-primary" onclick="searchSeries()">Search</button>
             </div>
+            <details class="advanced">
+                <summary>Advanced</summary>
+                <div class="advanced-grid">
+                    <div>
+                        <label for="series-limit">Search depth</label>
+                        <select id="series-limit">
+                            <option value="4">Fast - 4 results</option>
+                            <option value="8" selected>Balanced - 8 results</option>
+                            <option value="12">Deep - 12 results</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="series-candidates">File choices</label>
+                        <select id="series-candidates">
+                            <option value="3">Simple - 3 per episode</option>
+                            <option value="5" selected>Normal - 5 per episode</option>
+                            <option value="8">Detailed - 8 per episode</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="series-concurrency">Search speed</label>
+                        <select id="series-concurrency">
+                            <option value="2">Conservative - 2 at once</option>
+                            <option value="5" selected>Balanced - 5 at once</option>
+                            <option value="10">Fast - 10 at once</option>
+                        </select>
+                    </div>
+                </div>
+            </details>
         </div>
-        <div id="webshare-auth-status" class="auth-status warn">
+        <div id="webshare-auth-status" class="auth-status">
             <div class="auth-title">Checking Webshare login...</div>
             <div class="auth-detail">Verifying whether fast downloads are enabled.</div>
         </div>
         <div class="row">
-            <div class="muted">Select episodes and candidate files, then start every selected download at once.</div>
-            <button class="btn-secondary" onclick="downloadSelectedSeries()">Download selected</button>
+            <div class="muted">Review the matches, clear anything you do not want, then queue the selected downloads.</div>
+            <button class="btn-download" onclick="downloadSelectedSeries()">Download Selected</button>
         </div>
         <div id="series-status" class="status"></div>
         <div id="series-loading" class="loading-box" aria-live="polite">
@@ -1554,13 +1620,14 @@ const htmlTemplate = `<!DOCTYPE html>
             status.textContent = 'Searching TVmaze and Webshare...';
             results.innerHTML = '';
             seriesMatches = [];
-            setSeriesLoading(true, 'Looking up show metadata, then checking Webshare candidates for each episode.');
+            setSeriesLoading(true, 'Looking up show metadata, then checking Webshare candidates for multiple episodes in parallel.');
 
             const payload = {
                 query,
                 preferred_quality: document.getElementById('series-quality').value.trim(),
                 search_limit: parseInt(document.getElementById('series-limit').value, 10) || 8,
                 candidates: parseInt(document.getElementById('series-candidates').value, 10) || 5,
+                concurrency: parseInt(document.getElementById('series-concurrency').value, 10) || 5,
                 min_score: 0.35
             };
 
@@ -1738,23 +1805,22 @@ const htmlTemplate = `<!DOCTYPE html>
             try {
                 const resp = await fetch('/api/webshare/status');
                 const data = await resp.json();
-                box.classList.remove('ok', 'warn', 'error');
+                box.classList.remove('visible', 'ok', 'warn', 'error');
                 if (data.authenticated) {
                     box.classList.add('ok');
-                    box.innerHTML = '<div class="auth-title">Fast Webshare downloads enabled</div>' +
-                        '<div class="auth-detail">' + escapeHtml(data.message) + ' Mode: ' + escapeHtml(data.mode) + '.</div>';
+                    box.innerHTML = '';
                 } else if (data.configured) {
-                    box.classList.add('error');
+                    box.classList.add('visible', 'error');
                     box.innerHTML = '<div class="auth-title">Webshare login needs attention</div>' +
                         '<div class="auth-detail">' + escapeHtml(data.message || data.error || 'Authentication failed.') + '</div>';
                 } else {
-                    box.classList.add('warn');
+                    box.classList.add('visible', 'warn');
                     box.innerHTML = '<div class="auth-title">Fast Webshare downloads are not configured</div>' +
                         '<div class="auth-detail">' + escapeHtml(data.message) + '</div>';
                 }
             } catch (err) {
                 box.classList.remove('ok', 'warn');
-                box.classList.add('error');
+                box.classList.add('visible', 'error');
                 box.innerHTML = '<div class="auth-title">Could not check Webshare login</div>' +
                     '<div class="auth-detail">' + escapeHtml(err.message) + '</div>';
             }
