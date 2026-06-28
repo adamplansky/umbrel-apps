@@ -112,6 +112,79 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
+func loadEnvFiles(paths ...string) ([]string, error) {
+	var loaded []string
+	for _, path := range paths {
+		if err := loadEnvFile(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return loaded, err
+		}
+		loaded = append(loaded, path)
+	}
+	return loaded, nil
+}
+
+func loadEnvFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("%s:%d: expected KEY=value", path, lineNo)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if !validEnvKey(key) {
+			return fmt.Errorf("%s:%d: invalid environment key %q", path, lineNo, key)
+		}
+		if len(value) >= 2 {
+			quote := value[0]
+			if (quote == '"' || quote == '\'') && value[len(value)-1] == quote {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if _, exists := os.LookupEnv(key); !exists {
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	return scanner.Err()
+}
+
+func validEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+				return false
+			}
+			continue
+		}
+		if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func loadHistory(historyFile string) (*History, bool, error) {
 	history := &History{
 		Downloads:       make(map[string]DownloadRecord),
@@ -1551,6 +1624,12 @@ func main() {
 	listHistory := flag.Bool("list", false, "List download history")
 	webAddr := flag.String("web", "", "Start web UI on this address (e.g., :8080)")
 	flag.Parse()
+
+	if loaded, err := loadEnvFiles("/data/webshare.env", "/data/.env", ".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not load env file: %v\n", err)
+	} else if len(loaded) > 0 {
+		fmt.Printf("Loaded env file(s): %s\n", strings.Join(loaded, ", "))
+	}
 
 	// Set up signal handling for cleanup
 	sigChan := make(chan os.Signal, 1)

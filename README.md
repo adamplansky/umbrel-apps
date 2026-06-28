@@ -34,18 +34,40 @@ A file and series downloader with web UI. Downloads files directly to your Jelly
 
 **Webshare login for fast downloads:**
 
-Set these environment variables for the app container:
+On Umbrel, SSH into the device and create a persistent env file in the app data folder:
 
 ```bash
+ssh umbrel@umbrel.local
+mkdir -p /home/umbrel/umbrel/app-data/adamplansky-file-downloader/data
+nano /home/umbrel/umbrel/app-data/adamplansky-file-downloader/data/webshare.env
+```
+
+Put this in the file:
+
+```env
 WEBSHARE_USERNAME="your-email-or-username"
 WEBSHARE_PASSWORD="your-password"
 ```
 
-Or use an existing session token:
+Then restart the app from Umbrel UI, or over SSH:
 
 ```bash
+sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader
+```
+
+The app also supports `/data/.env` inside the container, which maps to:
+
+```bash
+/home/umbrel/umbrel/app-data/adamplansky-file-downloader/data/.env
+```
+
+Or use an existing Webshare session token instead of username/password:
+
+```env
 WEBSHARE_WST="your-webshare-token"
 ```
+
+For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
 
 ---
 
