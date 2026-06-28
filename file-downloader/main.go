@@ -1216,7 +1216,9 @@ const htmlTemplate = `<!DOCTYPE html>
         h2 { border-bottom: 1px solid #30384a; padding-bottom: 10px; margin: 24px 0 15px; }
         input, select { padding: 12px; border: 1px solid #334155; border-radius: 6px; background: #111827; color: #eef2f7; font-size: 15px; min-width: 0; }
         input[type="text"] { width: 100%; }
+        label { display: block; font-size: 13px; font-weight: 700; color: #d1d5db; margin-bottom: 6px; }
         button { padding: 12px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: 700; white-space: nowrap; }
+        button:disabled { opacity: 0.55; cursor: not-allowed; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 10px; border-bottom: 1px solid #30384a; text-align: left; vertical-align: top; }
         th { color: #9ca3af; font-size: 12px; text-transform: uppercase; }
@@ -1226,7 +1228,9 @@ const htmlTemplate = `<!DOCTYPE html>
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
         .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 14px; align-items: center; }
-        .series-controls { display: grid; grid-template-columns: minmax(220px, 1fr) 130px 130px 150px auto; gap: 10px; align-items: center; margin-bottom: 14px; }
+        .series-form { background: #1f2937; border: 1px solid #30384a; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+        .series-controls { display: grid; grid-template-columns: minmax(260px, 1fr) 160px 180px 180px auto; gap: 12px; align-items: end; }
+        .field-help { margin-top: 6px; font-size: 12px; color: #9ca3af; line-height: 1.35; }
         .btn-primary { background: #38bdf8; color: #07111f; }
         .btn-secondary { background: #334155; color: #eef2f7; }
         .btn-danger { background: #ef4444; color: #fff; padding: 8px 14px; font-size: 14px; }
@@ -1247,6 +1251,17 @@ const htmlTemplate = `<!DOCTYPE html>
         .score { color: #fbbf24; font-variant-numeric: tabular-nums; }
         .error { color: #f87171; }
         .status { margin: 10px 0; color: #9ca3af; }
+        .loading-box { display: none; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin: 14px 0; }
+        .loading-box.active { display: flex; align-items: center; gap: 14px; }
+        .spinner { width: 28px; height: 28px; border: 3px solid #334155; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.9s linear infinite; flex: 0 0 auto; }
+        .loading-title { font-weight: 700; color: #eef2f7; margin-bottom: 3px; }
+        .loading-detail { color: #9ca3af; font-size: 13px; }
+        .season-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+        .season-tool { display: inline-flex; align-items: center; gap: 6px; background: #111827; border: 1px solid #334155; border-radius: 6px; padding: 6px; }
+        .season-label { color: #d1d5db; font-size: 13px; font-weight: 700; padding: 0 4px; }
+        .btn-small { padding: 7px 9px; font-size: 12px; border-radius: 5px; background: #334155; color: #eef2f7; }
+        .selection-count { color: #9ca3af; font-size: 13px; margin-left: auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 820px) {
             body { padding: 14px; }
             .row, .series-controls { grid-template-columns: 1fr; }
@@ -1273,18 +1288,57 @@ const htmlTemplate = `<!DOCTYPE html>
     </section>
 
     <section id="series-tab" class="tab-panel">
-        <div class="series-controls">
-            <input type="text" id="series-query" placeholder="Series name, e.g. Pripady 1 oddeleni" onkeypress="if(event.key==='Enter')searchSeries()">
-            <input type="text" id="series-quality" placeholder="Quality e.g. 1080p">
-            <input type="text" id="series-limit" value="8" title="Webshare search results per episode">
-            <input type="text" id="series-candidates" value="5" title="Candidates per episode">
-            <button class="btn-primary" onclick="searchSeries()">Search</button>
+        <div class="series-form">
+            <div class="series-controls">
+                <div>
+                    <label for="series-query">Series title</label>
+                    <input type="text" id="series-query" placeholder="Pripady 1 oddeleni" onkeypress="if(event.key==='Enter')searchSeries()">
+                    <div class="field-help">Finds the show, loads episodes, then searches Webshare for each episode.</div>
+                </div>
+                <div>
+                    <label for="series-quality">Preferred quality</label>
+                    <select id="series-quality">
+                        <option value="">Any</option>
+                        <option value="1080p">1080p</option>
+                        <option value="720p">720p</option>
+                        <option value="2160p">2160p / 4K</option>
+                        <option value="x265">x265</option>
+                    </select>
+                    <div class="field-help">Used as a ranking hint.</div>
+                </div>
+                <div>
+                    <label for="series-limit">Search depth</label>
+                    <select id="series-limit">
+                        <option value="4">Fast - 4 results</option>
+                        <option value="8" selected>Balanced - 8 results</option>
+                        <option value="12">Deep - 12 results</option>
+                    </select>
+                    <div class="field-help">More results can improve matching but takes longer.</div>
+                </div>
+                <div>
+                    <label for="series-candidates">File choices</label>
+                    <select id="series-candidates">
+                        <option value="3">Simple - 3 per episode</option>
+                        <option value="5" selected>Normal - 5 per episode</option>
+                        <option value="8">Detailed - 8 per episode</option>
+                    </select>
+                    <div class="field-help">How many downloadable options to show.</div>
+                </div>
+                <button id="series-search-btn" class="btn-primary" onclick="searchSeries()">Search</button>
+            </div>
         </div>
         <div class="row">
             <div class="muted">Select episodes and candidate files, then start every selected download at once.</div>
             <button class="btn-secondary" onclick="downloadSelectedSeries()">Download selected</button>
         </div>
         <div id="series-status" class="status"></div>
+        <div id="series-loading" class="loading-box" aria-live="polite">
+            <div class="spinner"></div>
+            <div>
+                <div class="loading-title">Searching episodes and files...</div>
+                <div id="series-loading-detail" class="loading-detail">This can take a minute for longer series.</div>
+            </div>
+        </div>
         <div id="series-results"></div>
     </section>
 
@@ -1348,9 +1402,11 @@ const htmlTemplate = `<!DOCTYPE html>
             if (!query) return;
             const status = document.getElementById('series-status');
             const results = document.getElementById('series-results');
+            const searchBtn = document.getElementById('series-search-btn');
             status.textContent = 'Searching TVmaze and Webshare...';
             results.innerHTML = '';
             seriesMatches = [];
+            setSeriesLoading(true, 'Looking up show metadata, then checking Webshare candidates for each episode.');
 
             const payload = {
                 query,
@@ -1360,18 +1416,32 @@ const htmlTemplate = `<!DOCTYPE html>
                 min_score: 0.35
             };
 
-            const resp = await fetch('/api/series/search', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
-            if (!resp.ok) {
-                status.textContent = 'Search failed: ' + await resp.text();
-                return;
+            searchBtn.disabled = true;
+            try {
+                const resp = await fetch('/api/series/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!resp.ok) {
+                    status.textContent = 'Search failed: ' + await resp.text();
+                    return;
+                }
+                seriesMatches = await resp.json();
+                const downloadable = seriesMatches.filter(m => m.url).length;
+                status.textContent = 'Found ' + seriesMatches.length + ' episodes, ' + downloadable + ' with a selected file.';
+                renderSeriesResults();
+            } finally {
+                searchBtn.disabled = false;
+                setSeriesLoading(false);
             }
-            seriesMatches = await resp.json();
-            status.textContent = 'Found ' + seriesMatches.length + ' episodes.';
-            renderSeriesResults();
+        }
+
+        function setSeriesLoading(active, detail) {
+            const box = document.getElementById('series-loading');
+            const detailEl = document.getElementById('series-loading-detail');
+            box.classList.toggle('active', active);
+            if (detail) detailEl.textContent = detail;
         }
 
         function renderSeriesResults() {
@@ -1381,21 +1451,48 @@ const htmlTemplate = `<!DOCTYPE html>
                 return;
             }
             const rows = seriesMatches.map((m, idx) => {
-                const options = (m.candidates || []).filter(c => c.url).map((c, cidx) => {
+                const options = (m.candidates || []).map((c, cidx) => ({...c, cidx})).filter(c => c.url).map(c => {
                     const label = c.name + ' - ' + c.size_human + ' - score ' + c.score.toFixed(2);
-                    return '<option value="' + cidx + '">' + escapeHtml(label) + '</option>';
+                    return '<option value="' + c.cidx + '">' + escapeHtml(label) + '</option>';
                 }).join('');
                 const checked = m.url ? 'checked' : '';
                 const disabled = options ? '' : 'disabled';
                 const err = m.error ? '<div class="error">' + escapeHtml(m.error) + '</div>' : '';
                 return '<tr>' +
-                    '<td><input type="checkbox" class="series-check" data-index="' + idx + '" ' + checked + ' ' + disabled + '></td>' +
+                    '<td><input type="checkbox" class="series-check" data-index="' + idx + '" data-season="' + m.season + '" onchange="updateSelectionCount()" ' + checked + ' ' + disabled + '></td>' +
                     '<td class="episode-title"><strong>' + escapeHtml(m.code) + '</strong><br>' + escapeHtml(m.episode_name) + '</td>' +
                     '<td><select class="candidate-select" data-index="' + idx + '" ' + disabled + '>' + options + '</select>' + err + '</td>' +
                     '<td class="score">' + (m.score || 0).toFixed(2) + '</td>' +
                 '</tr>';
             }).join('');
-            results.innerHTML = '<div class="series-results"><table><thead><tr><th></th><th>Episode</th><th>Selected file</th><th>Score</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+            const seasons = [...new Set(seriesMatches.map(m => m.season))].sort((a, b) => a - b);
+            const tools = seasons.map(season => {
+                const label = 'S' + String(season).padStart(2, '0');
+                return '<div class="season-tool">' +
+                    '<span class="season-label">' + label + '</span>' +
+                    '<button class="btn-small" onclick="setSeasonSelection(' + season + ', true)">Select</button>' +
+                    '<button class="btn-small" onclick="setSeasonSelection(' + season + ', false)">Clear</button>' +
+                '</div>';
+            }).join('');
+            results.innerHTML = '<div class="series-results">' +
+                '<div class="season-tools">' + tools + '<span id="selection-count" class="selection-count"></span></div>' +
+                '<table><thead><tr><th></th><th>Episode</th><th>Selected file</th><th>Score</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+            '</div>';
+            updateSelectionCount();
+        }
+
+        function setSeasonSelection(season, selected) {
+            document.querySelectorAll('.series-check[data-season="' + season + '"]').forEach(check => {
+                if (!check.disabled) check.checked = selected;
+            });
+            updateSelectionCount();
+        }
+
+        function updateSelectionCount() {
+            const count = document.querySelectorAll('.series-check:checked').length;
+            const total = document.querySelectorAll('.series-check:not(:disabled)').length;
+            const el = document.getElementById('selection-count');
+            if (el) el.textContent = count + ' of ' + total + ' selected';
         }
 
         async function downloadSelectedSeries() {
