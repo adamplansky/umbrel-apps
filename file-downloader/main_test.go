@@ -14,6 +14,19 @@ func TestMovieTargetPath(t *testing.T) {
 	}
 }
 
+func TestMovieMetadataTargetPath(t *testing.T) {
+	got := movieMetadataTargetPath(MovieDownloadItem{
+		URL:      "https://example.invalid/file",
+		Filename: "source-name.mkv",
+		Title:    "Forrest Gump",
+		Year:     "1994",
+	})
+	want := filepath.Join("Movies", "Forrest Gump (1994)", "Forrest Gump (1994).mkv")
+	if got != want {
+		t.Fatalf("movieMetadataTargetPath() = %q, want %q", got, want)
+	}
+}
+
 func TestSeriesTargetPath(t *testing.T) {
 	got := seriesTargetPath(SeriesDownloadItem{
 		URL:      "https://example.invalid/file",

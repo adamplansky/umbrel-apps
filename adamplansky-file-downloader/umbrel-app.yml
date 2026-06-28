@@ -3,14 +3,16 @@ id: adamplansky-file-downloader
 category: files
 name: File Downloader
 version: "1.0.0"
-tagline: File and series downloader with Webshare search
+tagline: Movie and series downloader with Webshare search
 icon: https://raw.githubusercontent.com/adamplansky/umbrel-apps/main/adamplansky-file-downloader/images/icon.svg
 description: >-
   A lightweight downloader with a web interface.
-  Paste direct URLs or search a TV series, review episode matches from Webshare,
-  choose the files you want, and download selected episodes directly to your Umbrel.
+  Paste direct URLs, search movies through TMDb, or search TV series through TVmaze,
+  review matches from Webshare, choose the files you want, and download selected
+  items directly to your Umbrel.
   Features include download progress tracking, download history, duplicate detection,
-  TVmaze episode lookup, and Webshare-powered series matching.
+  Jellyfin-friendly folders, TMDb movie lookup, TVmaze episode lookup, and
+  Webshare-powered matching.
 developer: Adam Plansky
 website: https://github.com/adamplansky/umbrel-apps
 dependencies: []
@@ -19,8 +21,8 @@ support: https://github.com/adamplansky/umbrel-apps/issues
 port: 8080
 gallery: []
 releaseNotes: >-
-  Added a Series Search tab with TVmaze episode lookup, Webshare matching,
-  candidate selection, and one-click selected episode downloads.
+  Added Movie Search with TMDb metadata, Webshare matching, and Jellyfin-friendly
+  movie folders alongside the existing Series Search workflow.
 path: ""
 defaultUsername: ""
 defaultPassword: ""

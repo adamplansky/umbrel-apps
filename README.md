@@ -17,11 +17,12 @@ Then go to **App Store** → **Adam's Apps** to install apps.
 
 ### File Downloader
 
-A file and series downloader with web UI. Downloads files directly to your Jellyfin movies folder.
+A file, movie, and series downloader with web UI. Downloads files directly into Jellyfin-friendly folders.
 
 **Features:**
 - Web UI with dark theme
 - Manual URL downloads
+- Movie Search tab: TMDb movie lookup + Webshare matching
 - Series Search tab: TVmaze episode lookup + Webshare matching
 - Per-episode candidate selection before downloading
 - One-click download for all selected episodes
@@ -68,6 +69,7 @@ Put this in the file:
 ```env
 WEBSHARE_USERNAME="your-email-or-username"
 WEBSHARE_PASSWORD="your-password"
+TMDB_ACCESS_TOKEN="your-tmdb-read-access-token"
 MAX_CONCURRENT_DOWNLOADS="5"
 SERIES_SEARCH_CONCURRENCY="5"
 ```
@@ -89,6 +91,8 @@ Or use an existing Webshare session token instead of username/password:
 ```env
 WEBSHARE_WST="your-webshare-token"
 ```
+
+Movie Search uses TMDb for movie metadata. Set either `TMDB_ACCESS_TOKEN` (recommended) or `TMDB_API_KEY` in the same env file. Without TMDb credentials, series search still works, but movie search returns a configuration error.
 
 For local CLI/development runs, you can still export the same variables in your shell or place them in a local `.env` file.
 
@@ -125,6 +129,14 @@ curl -s http://127.0.0.1:8080/api/webshare/status
 ```
 
 In the Series Search tab, the app also shows whether fast Webshare downloads are enabled.
+
+Check the app-level TMDb status endpoint:
+
+```bash
+curl -s http://127.0.0.1:8080/api/tmdb/status
+```
+
+In the Movie Search tab, the app shows a warning if TMDb is missing or misconfigured.
 
 **Updating the app on Umbrel:**
 

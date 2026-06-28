@@ -343,6 +343,23 @@ func movieTargetPath(filename string) string {
 	return safeRelativePath("Movies", title, filename)
 }
 
+func movieMetadataTargetPath(item MovieDownloadItem) string {
+	title := safePathComponent(item.Title, "Unknown Movie")
+	folder := title
+	if item.Year != "" {
+		folder = fmt.Sprintf("%s (%s)", title, item.Year)
+	}
+	ext := filepath.Ext(item.Filename)
+	if ext == "" {
+		ext = filepath.Ext(filenameFromURL(item.URL))
+	}
+	if ext == "" {
+		ext = ".mp4"
+	}
+	filename := folder + ext
+	return safeRelativePath("Movies", folder, filename)
+}
+
 func yearFromDate(date string) string {
 	if len(date) >= 4 {
 		year := date[:4]
@@ -747,6 +764,7 @@ func (wd *WebDownloader) getHistory() []DownloadRecord {
 const (
 	tvmazeBaseURL   = "https://api.tvmaze.com"
 	webshareBaseURL = "https://webshare.cz/api"
+	tmdbBaseURL     = "https://api.themoviedb.org/3"
 )
 
 type SeriesSearchRequest struct {
@@ -759,9 +777,22 @@ type SeriesSearchRequest struct {
 	PreferredQuality string  `json:"preferred_quality"`
 }
 
+type MovieSearchRequest struct {
+	Query            string  `json:"query"`
+	Year             string  `json:"year"`
+	SearchLimit      int     `json:"search_limit"`
+	Candidates       int     `json:"candidates"`
+	MinScore         float64 `json:"min_score"`
+	PreferredQuality string  `json:"preferred_quality"`
+}
+
 type SeriesDownloadRequest struct {
 	URLs  []string             `json:"urls"`
 	Items []SeriesDownloadItem `json:"items"`
+}
+
+type MovieDownloadRequest struct {
+	Items []MovieDownloadItem `json:"items"`
 }
 
 type SeriesDownloadItem struct {
@@ -774,9 +805,37 @@ type SeriesDownloadItem struct {
 	EpisodeName string `json:"episode_name"`
 }
 
+type MovieDownloadItem struct {
+	URL      string `json:"url"`
+	Filename string `json:"filename"`
+	Title    string `json:"title"`
+	Year     string `json:"year"`
+}
+
 type TVMazeClient struct {
 	baseURL    string
 	httpClient *http.Client
+}
+
+type TMDbClient struct {
+	baseURL     string
+	httpClient  *http.Client
+	apiKey      string
+	accessToken string
+}
+
+type tmdbMovieSearchResponse struct {
+	Results []TMDbMovie `json:"results"`
+}
+
+type TMDbMovie struct {
+	ID            int     `json:"id"`
+	Title         string  `json:"title"`
+	OriginalTitle string  `json:"original_title"`
+	ReleaseDate   string  `json:"release_date"`
+	Overview      string  `json:"overview"`
+	Popularity    float64 `json:"popularity"`
+	VoteAverage   float64 `json:"vote_average"`
 }
 
 type TVSearchResult struct {
@@ -866,6 +925,23 @@ type SeriesMatch struct {
 	Candidates        []SeriesCandidate `json:"candidates,omitempty"`
 }
 
+type MovieMatch struct {
+	MovieID           int               `json:"movie_id"`
+	Title             string            `json:"title"`
+	OriginalTitle     string            `json:"original_title,omitempty"`
+	Year              string            `json:"year,omitempty"`
+	ReleaseDate       string            `json:"release_date,omitempty"`
+	Overview          string            `json:"overview,omitempty"`
+	WebshareIdent     string            `json:"webshare_ident,omitempty"`
+	WebshareName      string            `json:"webshare_name,omitempty"`
+	WebshareSize      int64             `json:"webshare_size,omitempty"`
+	WebshareSizeHuman string            `json:"webshare_size_human,omitempty"`
+	Score             float64           `json:"score"`
+	URL               string            `json:"url,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	Candidates        []SeriesCandidate `json:"candidates,omitempty"`
+}
+
 type SeriesCandidate struct {
 	Ident     string  `json:"ident"`
 	Name      string  `json:"name"`
@@ -887,6 +963,16 @@ type WebshareStatus struct {
 	TokenPresent    bool   `json:"token_present"`
 	Message         string `json:"message"`
 	Error           string `json:"error,omitempty"`
+}
+
+type TMDbStatus struct {
+	Configured         bool   `json:"configured"`
+	Authenticated      bool   `json:"authenticated"`
+	Mode               string `json:"mode"`
+	AccessTokenPresent bool   `json:"access_token_present"`
+	APIKeyPresent      bool   `json:"api_key_present"`
+	Message            string `json:"message"`
+	Error              string `json:"error,omitempty"`
 }
 
 func checkWebshareStatus(ctx context.Context) WebshareStatus {
@@ -946,6 +1032,56 @@ func checkWebshareStatus(ctx context.Context) WebshareStatus {
 	}
 }
 
+func checkTMDbStatus(ctx context.Context) TMDbStatus {
+	apiKey := strings.TrimSpace(os.Getenv("TMDB_API_KEY"))
+	accessToken := strings.TrimSpace(os.Getenv("TMDB_ACCESS_TOKEN"))
+	status := TMDbStatus{
+		AccessTokenPresent: accessToken != "",
+		APIKeyPresent:      apiKey != "",
+	}
+	if accessToken == "" && apiKey == "" {
+		status.Mode = "not configured"
+		status.Message = "TMDb credentials are not configured. Movie Search needs TMDB_ACCESS_TOKEN or TMDB_API_KEY."
+		return status
+	}
+	status.Configured = true
+	if accessToken != "" {
+		status.Mode = "access token"
+	} else {
+		status.Mode = "api key"
+	}
+	client := TMDbClient{
+		baseURL:     tmdbBaseURL,
+		httpClient:  &http.Client{Timeout: 15 * time.Second},
+		apiKey:      apiKey,
+		accessToken: accessToken,
+	}
+	if _, err := client.SearchMovie(ctx, "Forrest Gump", "1994"); err != nil {
+		status.Message = "TMDb credentials are configured, but validation failed."
+		status.Error = err.Error()
+		return status
+	}
+	status.Authenticated = true
+	status.Message = "TMDb credentials are configured and movie lookup works."
+	return status
+}
+
+func webshareClientFromEnv(ctx context.Context, httpClient *http.Client) (WebshareClient, error) {
+	ws := WebshareClient{
+		baseURL:    webshareBaseURL,
+		httpClient: httpClient,
+		token:      os.Getenv("WEBSHARE_WST"),
+	}
+	if ws.token == "" && os.Getenv("WEBSHARE_USERNAME") != "" {
+		token, err := ws.Login(ctx, os.Getenv("WEBSHARE_USERNAME"), os.Getenv("WEBSHARE_PASSWORD"), false)
+		if err != nil {
+			return ws, err
+		}
+		ws.token = token
+	}
+	return ws, nil
+}
+
 func (wd *WebDownloader) searchSeries(ctx context.Context, req SeriesSearchRequest) ([]SeriesMatch, error) {
 	req.Query = strings.TrimSpace(req.Query)
 	if req.Query == "" && req.ShowID == 0 {
@@ -963,17 +1099,9 @@ func (wd *WebDownloader) searchSeries(ctx context.Context, req SeriesSearchReque
 
 	httpClient := &http.Client{Timeout: 25 * time.Second}
 	tv := TVMazeClient{baseURL: tvmazeBaseURL, httpClient: httpClient}
-	ws := WebshareClient{
-		baseURL:    webshareBaseURL,
-		httpClient: httpClient,
-		token:      os.Getenv("WEBSHARE_WST"),
-	}
-	if ws.token == "" && os.Getenv("WEBSHARE_USERNAME") != "" {
-		token, err := ws.Login(ctx, os.Getenv("WEBSHARE_USERNAME"), os.Getenv("WEBSHARE_PASSWORD"), false)
-		if err != nil {
-			return nil, err
-		}
-		ws.token = token
+	ws, err := webshareClientFromEnv(ctx, httpClient)
+	if err != nil {
+		return nil, err
 	}
 
 	show, episodes, err := loadSeriesEpisodes(ctx, tv, req)
@@ -1012,6 +1140,41 @@ func (wd *WebDownloader) searchSeries(ctx context.Context, req SeriesSearchReque
 	return matches, nil
 }
 
+func (wd *WebDownloader) searchMovie(ctx context.Context, req MovieSearchRequest) (MovieMatch, error) {
+	req.Query = strings.TrimSpace(req.Query)
+	req.Year = strings.TrimSpace(req.Year)
+	if req.Query == "" {
+		return MovieMatch{}, errors.New("query is required")
+	}
+	if req.SearchLimit <= 0 {
+		req.SearchLimit = 8
+	}
+	if req.Candidates <= 0 {
+		req.Candidates = 5
+	}
+	if req.MinScore <= 0 {
+		req.MinScore = 0.25
+	}
+
+	httpClient := &http.Client{Timeout: 25 * time.Second}
+	tmdb := TMDbClient{
+		baseURL:     tmdbBaseURL,
+		httpClient:  httpClient,
+		apiKey:      strings.TrimSpace(os.Getenv("TMDB_API_KEY")),
+		accessToken: strings.TrimSpace(os.Getenv("TMDB_ACCESS_TOKEN")),
+	}
+	ws, err := webshareClientFromEnv(ctx, httpClient)
+	if err != nil {
+		return MovieMatch{}, err
+	}
+
+	movie, err := tmdb.SearchMovie(ctx, req.Query, req.Year)
+	if err != nil {
+		return MovieMatch{}, err
+	}
+	return linkMovie(ctx, ws, movie, req), nil
+}
+
 func loadSeriesEpisodes(ctx context.Context, tv TVMazeClient, req SeriesSearchRequest) (Show, []Episode, error) {
 	var show Show
 	if req.ShowID != 0 {
@@ -1041,6 +1204,95 @@ func loadSeriesEpisodes(ctx context.Context, tv TVMazeClient, req SeriesSearchRe
 		return episodes[i].Number < episodes[j].Number
 	})
 	return show, episodes, nil
+}
+
+func linkMovie(ctx context.Context, ws WebshareClient, movie TMDbMovie, req MovieSearchRequest) MovieMatch {
+	year := yearFromDate(movie.ReleaseDate)
+	match := MovieMatch{
+		MovieID:       movie.ID,
+		Title:         movie.Title,
+		OriginalTitle: movie.OriginalTitle,
+		Year:          year,
+		ReleaseDate:   movie.ReleaseDate,
+		Overview:      movie.Overview,
+	}
+
+	candidatesByIdent := map[string]SeriesCandidate{}
+	for _, query := range movieQueries(movie, req.PreferredQuality) {
+		response, err := ws.Search(ctx, query, 0, req.SearchLimit)
+		if err != nil {
+			if match.Error == "" {
+				match.Error = err.Error()
+			}
+			continue
+		}
+		for _, file := range response.Files {
+			if file.Password != 0 {
+				continue
+			}
+			candidate := SeriesCandidate{
+				Ident:     file.Ident,
+				Name:      file.Name,
+				Type:      file.Type,
+				Size:      file.Size,
+				SizeHuman: formatBytes(file.Size),
+				Query:     query,
+				Score:     scoreMovieCandidate(movie, file, req.PreferredQuality),
+			}
+			if previous, ok := candidatesByIdent[file.Ident]; !ok || candidate.Score > previous.Score {
+				candidatesByIdent[file.Ident] = candidate
+			}
+		}
+	}
+
+	candidates := make([]SeriesCandidate, 0, len(candidatesByIdent))
+	for _, candidate := range candidatesByIdent {
+		candidates = append(candidates, candidate)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Score != candidates[j].Score {
+			return candidates[i].Score > candidates[j].Score
+		}
+		return candidates[i].Size > candidates[j].Size
+	})
+	if len(candidates) == 0 {
+		if match.Error == "" {
+			match.Error = "no Webshare candidates"
+		}
+		return match
+	}
+
+	keep := min(req.Candidates, len(candidates))
+	match.Candidates = candidates[:keep]
+	for i := 0; i < keep; i++ {
+		if candidates[i].Score < req.MinScore {
+			continue
+		}
+		link, err := ws.FileLink(ctx, candidates[i].Ident)
+		if err != nil {
+			match.Candidates[i].Error = err.Error()
+			continue
+		}
+		match.Candidates[i].URL = link
+		if match.URL == "" {
+			match.WebshareIdent = candidates[i].Ident
+			match.WebshareName = candidates[i].Name
+			match.WebshareSize = candidates[i].Size
+			match.WebshareSizeHuman = candidates[i].SizeHuman
+			match.Score = candidates[i].Score
+			match.URL = link
+			match.Error = ""
+		}
+	}
+	if match.URL == "" {
+		match.WebshareIdent = candidates[0].Ident
+		match.WebshareName = candidates[0].Name
+		match.WebshareSize = candidates[0].Size
+		match.WebshareSizeHuman = candidates[0].SizeHuman
+		match.Score = candidates[0].Score
+		match.Error = fmt.Sprintf("no candidate above min score %.2f with generated URL", req.MinScore)
+	}
+	return match
 }
 
 func linkSeriesEpisode(ctx context.Context, ws WebshareClient, show Show, episode Episode, req SeriesSearchRequest) SeriesMatch {
@@ -1149,6 +1401,57 @@ func (c TVMazeClient) Episodes(ctx context.Context, showID int) ([]Episode, erro
 	var episodes []Episode
 	err := c.getJSON(ctx, fmt.Sprintf("/shows/%d/episodes", showID), &episodes)
 	return episodes, err
+}
+
+func (c TMDbClient) SearchMovie(ctx context.Context, query, year string) (TMDbMovie, error) {
+	values := url.Values{}
+	values.Set("query", query)
+	values.Set("include_adult", "false")
+	values.Set("language", "en-US")
+	if year != "" {
+		values.Set("year", year)
+	}
+	var response tmdbMovieSearchResponse
+	if err := c.getJSON(ctx, "/search/movie?"+values.Encode(), &response); err != nil {
+		return TMDbMovie{}, err
+	}
+	if len(response.Results) == 0 {
+		return TMDbMovie{}, fmt.Errorf("no TMDb movie found for %q", query)
+	}
+	return response.Results[0], nil
+}
+
+func (c TMDbClient) getJSON(ctx context.Context, path string, target any) error {
+	if c.accessToken == "" && c.apiKey == "" {
+		return errors.New("TMDb is not configured: set TMDB_ACCESS_TOKEN or TMDB_API_KEY")
+	}
+	fullURL := c.baseURL + path
+	if c.accessToken == "" {
+		sep := "?"
+		if strings.Contains(path, "?") {
+			sep = "&"
+		}
+		fullURL += sep + "api_key=" + url.QueryEscape(c.apiKey)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "umbrel-file-downloader/movie")
+	if c.accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("tmdb request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return json.NewDecoder(resp.Body).Decode(target)
 }
 
 func (c TVMazeClient) getJSON(ctx context.Context, path string, target any) error {
@@ -1288,6 +1591,36 @@ func episodeQueries(showName string, episode Episode, quality string) []string {
 	return uniqueStrings(base)
 }
 
+func movieQueries(movie TMDbMovie, quality string) []string {
+	year := yearFromDate(movie.ReleaseDate)
+	titles := []string{movie.Title}
+	if movie.OriginalTitle != "" && normalize(movie.OriginalTitle) != normalize(movie.Title) {
+		titles = append(titles, movie.OriginalTitle)
+	}
+	base := []string{}
+	for _, title := range titles {
+		if year != "" {
+			base = append(base, fmt.Sprintf("%s %s", title, year))
+		}
+		base = append(base, title)
+		if folded := asciiFold(title); folded != title {
+			if year != "" {
+				base = append(base, fmt.Sprintf("%s %s", folded, year))
+			}
+			base = append(base, folded)
+		}
+	}
+	if strings.TrimSpace(quality) != "" {
+		q := strings.TrimSpace(quality)
+		withQuality := make([]string, 0, len(base))
+		for _, query := range base {
+			withQuality = append(withQuality, query+" "+q)
+		}
+		base = append(withQuality, base...)
+	}
+	return uniqueStrings(base)
+}
+
 func scoreSeriesCandidate(showName string, episode Episode, file WebshareFile, quality string) float64 {
 	name := normalize(file.Name)
 	show := normalize(showName)
@@ -1311,6 +1644,38 @@ func scoreSeriesCandidate(showName string, episode Episode, file WebshareFile, q
 		score += 0.05
 	} else if file.Size > 0 && file.Size < 50*1024*1024 {
 		score -= 0.15
+	}
+	if strings.TrimSpace(quality) != "" && strings.Contains(name, normalize(quality)) {
+		score += 0.08
+	}
+	if file.Password != 0 {
+		score -= 0.25
+	}
+	score += math.Min(float64(file.PositiveVotes), 10) * 0.005
+	score -= math.Min(float64(file.NegativeVotes), 10) * 0.01
+	return math.Round(score*100) / 100
+}
+
+func scoreMovieCandidate(movie TMDbMovie, file WebshareFile, quality string) float64 {
+	name := normalize(file.Name)
+	title := normalize(movie.Title)
+	originalTitle := normalize(movie.OriginalTitle)
+	year := yearFromDate(movie.ReleaseDate)
+	score := 0.0
+	score += 0.45 * tokenOverlap(title, name)
+	if originalTitle != "" && originalTitle != title {
+		score += 0.25 * tokenOverlap(originalTitle, name)
+	}
+	if year != "" && strings.Contains(name, year) {
+		score += 0.18
+	}
+	if isVideoType(file.Type, file.Name) {
+		score += 0.1
+	}
+	if file.Size >= 600*1024*1024 {
+		score += 0.08
+	} else if file.Size > 0 && file.Size < 100*1024*1024 {
+		score -= 0.2
 	}
 	if strings.TrimSpace(quality) != "" && strings.Contains(name, normalize(quality)) {
 		score += 0.08
@@ -1556,6 +1921,7 @@ const htmlTemplate = `<!DOCTYPE html>
         .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 14px; align-items: center; }
         .series-form { background: rgba(17, 24, 39, 0.82); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 10px; padding: 18px; margin-bottom: 14px; box-shadow: 0 18px 50px rgba(0,0,0,0.24); }
         .series-controls { display: grid; grid-template-columns: minmax(280px, 1fr) 150px auto; gap: 12px; align-items: end; }
+        .movie-controls { display: grid; grid-template-columns: minmax(260px, 1fr) 110px 150px auto; gap: 12px; align-items: end; }
         .advanced { margin-top: 14px; border-top: 1px solid rgba(148, 163, 184, 0.14); padding-top: 12px; }
         .advanced summary { cursor: pointer; color: #9ca3af; font-size: 13px; font-weight: 650; width: fit-content; }
         .advanced-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
@@ -1602,7 +1968,7 @@ const htmlTemplate = `<!DOCTYPE html>
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 820px) {
             body { padding: 14px; }
-            .row, .series-controls, .advanced-grid { grid-template-columns: 1fr; }
+            .row, .series-controls, .movie-controls, .advanced-grid { grid-template-columns: 1fr; }
             table, thead, tbody, tr, th, td { display: block; }
             thead { display: none; }
             td { border-bottom: none; padding: 6px 0; }
@@ -1615,6 +1981,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
     <div class="tabs">
         <button class="tab active" onclick="showTab('url-tab', this)">URL Download</button>
+        <button class="tab" onclick="showTab('movie-tab', this)">Movie Search</button>
         <button class="tab" onclick="showTab('series-tab', this)">Series Search</button>
     </div>
 
@@ -1623,6 +1990,66 @@ const htmlTemplate = `<!DOCTYPE html>
             <input type="text" id="url" placeholder="Enter URL to download..." onkeypress="if(event.key==='Enter')startDownload()">
             <button class="btn-primary" onclick="startDownload()">Download</button>
         </div>
+    </section>
+
+    <section id="movie-tab" class="tab-panel">
+        <div class="series-form">
+            <div class="movie-controls">
+                <div>
+                    <label for="movie-query">Movie title</label>
+                    <input type="text" id="movie-query" placeholder="Forrest Gump" onkeypress="if(event.key==='Enter')searchMovie()">
+                </div>
+                <div>
+                    <label for="movie-year">Year</label>
+                    <input type="text" id="movie-year" placeholder="optional">
+                </div>
+                <div>
+                    <label for="movie-quality">Quality</label>
+                    <select id="movie-quality">
+                        <option value="">Any</option>
+                        <option value="1080p" selected>1080p</option>
+                        <option value="720p">720p</option>
+                        <option value="2160p">2160p / 4K</option>
+                        <option value="x265">x265</option>
+                    </select>
+                </div>
+                <button id="movie-search-btn" class="btn-primary" onclick="searchMovie()">Search</button>
+            </div>
+            <details class="advanced">
+                <summary>Advanced</summary>
+                <div class="advanced-grid">
+                    <div>
+                        <label for="movie-limit">Search depth</label>
+                        <select id="movie-limit">
+                            <option value="4">Fast - 4 results</option>
+                            <option value="8" selected>Balanced - 8 results</option>
+                            <option value="12">Deep - 12 results</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="movie-candidates">File choices</label>
+                        <select id="movie-candidates">
+                            <option value="3">Simple - 3 choices</option>
+                            <option value="5" selected>Normal - 5 choices</option>
+                            <option value="8">Detailed - 8 choices</option>
+                        </select>
+                    </div>
+                </div>
+            </details>
+        </div>
+        <div id="tmdb-auth-status" class="auth-status">
+            <div class="auth-title">Checking TMDb configuration...</div>
+            <div class="auth-detail">Verifying whether movie metadata lookup is enabled.</div>
+        </div>
+        <div id="movie-status" class="status"></div>
+        <div id="movie-loading" class="loading-box" aria-live="polite">
+            <div class="spinner"></div>
+            <div>
+                <div class="loading-title">Searching movie and files...</div>
+                <div id="movie-loading-detail" class="loading-detail">Looking up TMDb metadata, then checking Webshare candidates.</div>
+            </div>
+        </div>
+        <div id="movie-results"></div>
     </section>
 
     <section id="series-tab" class="tab-panel">
@@ -1706,6 +2133,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <script>
         let polling = false;
         let seriesMatches = [];
+        let movieMatch = null;
 
         function escapeHtml(value) {
             return String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1787,6 +2215,110 @@ const htmlTemplate = `<!DOCTYPE html>
                 searchBtn.disabled = false;
                 setSeriesLoading(false);
             }
+        }
+
+        async function searchMovie() {
+            const query = document.getElementById('movie-query').value.trim();
+            if (!query) return;
+            const status = document.getElementById('movie-status');
+            const results = document.getElementById('movie-results');
+            const searchBtn = document.getElementById('movie-search-btn');
+            status.textContent = 'Searching TMDb and Webshare...';
+            results.innerHTML = '';
+            movieMatch = null;
+            setMovieLoading(true, 'Looking up TMDb metadata, then checking Webshare candidates.');
+
+            const payload = {
+                query,
+                year: document.getElementById('movie-year').value.trim(),
+                preferred_quality: document.getElementById('movie-quality').value.trim(),
+                search_limit: parseInt(document.getElementById('movie-limit').value, 10) || 8,
+                candidates: parseInt(document.getElementById('movie-candidates').value, 10) || 5,
+                min_score: 0.25
+            };
+
+            searchBtn.disabled = true;
+            try {
+                const resp = await fetch('/api/movie/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!resp.ok) {
+                    status.textContent = 'Search failed: ' + await resp.text();
+                    return;
+                }
+                movieMatch = await resp.json();
+                status.textContent = movieMatch.url
+                    ? 'Found ' + movieTitle(movieMatch) + ' with a selected file.'
+                    : 'Found ' + movieTitle(movieMatch) + ', but no downloadable file matched.';
+                renderMovieResults();
+            } finally {
+                searchBtn.disabled = false;
+                setMovieLoading(false);
+            }
+        }
+
+        function setMovieLoading(active, detail) {
+            const box = document.getElementById('movie-loading');
+            const detailEl = document.getElementById('movie-loading-detail');
+            box.classList.toggle('active', active);
+            if (detail) detailEl.textContent = detail;
+        }
+
+        function movieTitle(movie) {
+            if (!movie) return '';
+            return movie.title + (movie.year ? ' (' + movie.year + ')' : '');
+        }
+
+        function renderMovieResults() {
+            const results = document.getElementById('movie-results');
+            if (!movieMatch) {
+                results.innerHTML = '<p class="empty">No movie found</p>';
+                return;
+            }
+            const options = (movieMatch.candidates || []).map((c, cidx) => ({...c, cidx})).filter(c => c.url).map(c => {
+                const label = c.name + ' - ' + c.size_human + ' - score ' + c.score.toFixed(2);
+                return '<option value="' + c.cidx + '">' + escapeHtml(label) + '</option>';
+            }).join('');
+            const disabled = options ? '' : 'disabled';
+            const overview = movieMatch.overview ? '<div class="muted">' + escapeHtml(movieMatch.overview) + '</div>' : '';
+            const err = movieMatch.error ? '<div class="error">' + escapeHtml(movieMatch.error) + '</div>' : '';
+            results.innerHTML = '<div class="series-results">' +
+                '<div class="download-header">' +
+                    '<div><strong>' + escapeHtml(movieTitle(movieMatch)) + '</strong>' + overview + err + '</div>' +
+                    '<button class="btn-download" onclick="downloadSelectedMovie()" ' + disabled + '>Download Movie</button>' +
+                '</div>' +
+                '<select id="movie-candidate-select" class="candidate-select" ' + disabled + '>' + options + '</select>' +
+            '</div>';
+        }
+
+        async function downloadSelectedMovie() {
+            if (!movieMatch) return;
+            const select = document.getElementById('movie-candidate-select');
+            if (!select) return;
+            const candidate = (movieMatch.candidates || [])[parseInt(select.value, 10)];
+            if (!candidate || !candidate.url) {
+                alert('No selected downloadable movie file.');
+                return;
+            }
+            const item = {
+                url: candidate.url,
+                filename: candidate.name,
+                title: movieMatch.title,
+                year: movieMatch.year
+            };
+            const resp = await fetch('/api/movie/download', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({items: [item]})
+            });
+            if (!resp.ok) {
+                alert('Failed: ' + await resp.text());
+                return;
+            }
+            document.getElementById('movie-status').textContent = 'Queued ' + movieTitle(movieMatch) + '.';
+            if (!polling) pollProgress();
         }
 
         function setSeriesLoading(active, detail) {
@@ -1974,8 +2506,36 @@ const htmlTemplate = `<!DOCTYPE html>
             }
         }
 
+        async function loadTMDbStatus() {
+            const box = document.getElementById('tmdb-auth-status');
+            if (!box) return;
+            try {
+                const resp = await fetch('/api/tmdb/status');
+                const data = await resp.json();
+                box.classList.remove('visible', 'ok', 'warn', 'error');
+                if (data.authenticated) {
+                    box.classList.add('ok');
+                    box.innerHTML = '';
+                } else if (data.configured) {
+                    box.classList.add('visible', 'error');
+                    box.innerHTML = '<div class="auth-title">TMDb configuration needs attention</div>' +
+                        '<div class="auth-detail">' + escapeHtml(data.message || data.error || 'TMDb validation failed.') + '</div>';
+                } else {
+                    box.classList.add('visible', 'warn');
+                    box.innerHTML = '<div class="auth-title">Movie Search is not configured</div>' +
+                        '<div class="auth-detail">' + escapeHtml(data.message) + '</div>';
+                }
+            } catch (err) {
+                box.classList.remove('ok', 'warn');
+                box.classList.add('visible', 'error');
+                box.innerHTML = '<div class="auth-title">Could not check TMDb configuration</div>' +
+                    '<div class="auth-detail">' + escapeHtml(err.message) + '</div>';
+            }
+        }
+
         loadHistory();
         loadWebshareStatus();
+        loadTMDbStatus();
         fetch('/api/progress').then(r => r.json()).then(data => {
             if (data.length > 0) pollProgress();
         });
@@ -2045,6 +2605,59 @@ func startWebServer(addr, outputDir, historyFile string, maxConcurrent int) {
 		json.NewEncoder(w).Encode(matches)
 	})
 
+	http.HandleFunc("/api/movie/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
+		var req MovieSearchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		match, err := wd.searchMovie(ctx, req)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(match)
+	})
+
+	http.HandleFunc("/api/movie/download", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
+		var req MovieDownloadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		started := make([]string, 0, len(req.Items))
+		var errs []string
+		for _, item := range req.Items {
+			item.URL = strings.TrimSpace(item.URL)
+			if item.URL == "" {
+				continue
+			}
+			id, err := wd.startDownloadTo(item.URL, movieMetadataTargetPath(item))
+			if err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			started = append(started, id)
+		}
+		if len(started) == 0 && len(errs) > 0 {
+			http.Error(w, strings.Join(errs, "\n"), 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"started": started, "errors": errs})
+	})
+
 	http.HandleFunc("/api/series/download", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", 405)
@@ -2098,6 +2711,17 @@ func startWebServer(addr, outputDir, historyFile string, maxConcurrent int) {
 		defer cancel()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(checkWebshareStatus(ctx))
+	})
+
+	http.HandleFunc("/api/tmdb/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(checkTMDbStatus(ctx))
 	})
 
 	http.HandleFunc("/api/cancel", func(w http.ResponseWriter, r *http.Request) {
