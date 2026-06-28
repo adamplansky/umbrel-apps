@@ -30,7 +30,28 @@ A file and series downloader with web UI. Downloads files directly to your Jelly
 - Download history
 - Cancel downloads (auto-cleanup of partial files)
 
-**Download location:** `/home/umbrel/umbrel/home/Downloads/movies/`
+**Download location:** `/home/umbrel/umbrel/home/Downloads/media/`
+
+The downloader stores files in a Jellyfin-friendly layout:
+
+```text
+/home/umbrel/umbrel/home/Downloads/media/
+├── Movies/
+│   └── Movie Name (2020)/
+│       └── Movie Name (2020).mkv
+└── Shows/
+    └── Series Name (2020)/
+        └── Season 01/
+            ├── Series Name S01E01.mkv
+            └── Series Name S01E02.mkv
+```
+
+Create Jellyfin libraries pointing to:
+
+```text
+Movies -> /home/umbrel/umbrel/home/Downloads/media/Movies
+Shows  -> /home/umbrel/umbrel/home/Downloads/media/Shows
+```
 
 **Webshare login for fast downloads:**
 

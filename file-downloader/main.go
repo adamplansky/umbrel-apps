@@ -292,6 +292,113 @@ func filenameFromURL(rawURL string) string {
 	return filename
 }
 
+func safePathComponent(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = fallback
+	}
+	var b strings.Builder
+	lastSpace := false
+	for _, r := range value {
+		if r < 32 {
+			continue
+		}
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			if !lastSpace {
+				b.WriteByte(' ')
+				lastSpace = true
+			}
+		default:
+			if unicode.IsSpace(r) {
+				if !lastSpace {
+					b.WriteByte(' ')
+					lastSpace = true
+				}
+				continue
+			}
+			b.WriteRune(r)
+			lastSpace = false
+		}
+	}
+	out := strings.Trim(b.String(), " .")
+	if out == "" {
+		return fallback
+	}
+	return out
+}
+
+func safeRelativePath(parts ...string) string {
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		cleaned = append(cleaned, safePathComponent(part, "Unknown"))
+	}
+	return filepath.Join(cleaned...)
+}
+
+func movieTargetPath(filename string) string {
+	filename = safePathComponent(filename, "download")
+	ext := filepath.Ext(filename)
+	title := strings.TrimSuffix(filename, ext)
+	return safeRelativePath("Movies", title, filename)
+}
+
+func yearFromDate(date string) string {
+	if len(date) >= 4 {
+		year := date[:4]
+		if _, err := strconv.Atoi(year); err == nil {
+			return year
+		}
+	}
+	return ""
+}
+
+func showFolderName(name, year string) string {
+	name = safePathComponent(name, "Unknown Series")
+	if year == "" {
+		return name
+	}
+	return fmt.Sprintf("%s (%s)", name, year)
+}
+
+func seriesTargetPath(item SeriesDownloadItem) string {
+	showName := safePathComponent(item.ShowName, "Unknown Series")
+	showFolder := showFolderName(showName, item.ShowYear)
+	seasonFolder := fmt.Sprintf("Season %02d", item.Season)
+	ext := filepath.Ext(item.Filename)
+	if ext == "" {
+		ext = filepath.Ext(filenameFromURL(item.URL))
+	}
+	if ext == "" {
+		ext = ".mp4"
+	}
+	filename := fmt.Sprintf("%s S%02dE%02d%s", showName, item.Season, item.Episode, ext)
+	return safeRelativePath("Shows", showFolder, seasonFolder, filename)
+}
+
+func resolveOutputPath(outputDir, relativePath string) (string, error) {
+	if relativePath == "" {
+		return "", errors.New("relative path is required")
+	}
+	clean := filepath.Clean(relativePath)
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return "", fmt.Errorf("invalid output path: %s", relativePath)
+	}
+	base, err := filepath.Abs(outputDir)
+	if err != nil {
+		return "", err
+	}
+	outputPath, err := filepath.Abs(filepath.Join(outputDir, clean))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(base, outputPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid output path: %s", relativePath)
+	}
+	return outputPath, nil
+}
+
 func downloadFile(ctx context.Context, rawURL, outputDir string) (string, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
@@ -349,6 +456,7 @@ type ActiveDownload struct {
 	ID         string             `json:"id"`
 	URL        string             `json:"url"`
 	Filename   string             `json:"filename"`
+	TargetPath string             `json:"target_path"`
 	State      string             `json:"state"`
 	Order      int                `json:"order"`
 	Progress   int64              `json:"progress"`
@@ -433,7 +541,7 @@ func (wpw *WebProgressWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (wd *WebDownloader) downloadFile(ctx context.Context, downloadID, rawURL string) (string, int64, error) {
+func (wd *WebDownloader) downloadFile(ctx context.Context, downloadID, rawURL, targetPath string) (string, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return "", 0, err
@@ -449,13 +557,19 @@ func (wd *WebDownloader) downloadFile(ctx context.Context, downloadID, rawURL st
 		return "", 0, fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	filename := filenameFromURL(rawURL)
-	outputPath := filepath.Join(wd.outputDir, filename)
+	filename := filepath.Base(targetPath)
+	outputPath, err := resolveOutputPath(wd.outputDir, targetPath)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return "", 0, err
+	}
 
 	if _, err := os.Stat(outputPath); err == nil {
 		ext := filepath.Ext(filename)
 		base := strings.TrimSuffix(filename, ext)
-		outputPath = filepath.Join(wd.outputDir, fmt.Sprintf("%s_%s%s", base, urlHash(rawURL), ext))
+		outputPath = filepath.Join(filepath.Dir(outputPath), fmt.Sprintf("%s_%s%s", base, urlHash(rawURL), ext))
 	}
 
 	out, err := os.Create(outputPath)
@@ -468,6 +582,10 @@ func (wd *WebDownloader) downloadFile(ctx context.Context, downloadID, rawURL st
 	if d, ok := wd.downloads[downloadID]; ok {
 		d.OutputPath = outputPath
 		d.Filename = filepath.Base(outputPath)
+		base, baseErr := filepath.Abs(wd.outputDir)
+		if rel, err := filepath.Rel(base, outputPath); baseErr == nil && err == nil {
+			d.TargetPath = rel
+		}
 	}
 	wd.downloadsMu.Unlock()
 
@@ -491,12 +609,16 @@ func (wd *WebDownloader) downloadFile(ctx context.Context, downloadID, rawURL st
 }
 
 func (wd *WebDownloader) startDownload(rawURL string) (string, error) {
-	filename := filenameFromURL(rawURL)
+	return wd.startDownloadTo(rawURL, movieTargetPath(filenameFromURL(rawURL)))
+}
+
+func (wd *WebDownloader) startDownloadTo(rawURL, targetPath string) (string, error) {
+	filename := filepath.Base(targetPath)
 
 	// Check history
 	wd.historyMu.RLock()
 	_, urlExists := wd.history.Downloads[rawURL]
-	_, fileExists := wd.history.DownloadedFiles[filename]
+	_, fileExists := wd.history.DownloadedFiles[targetPath]
 	wd.historyMu.RUnlock()
 
 	if urlExists || fileExists {
@@ -512,6 +634,7 @@ func (wd *WebDownloader) startDownload(rawURL string) (string, error) {
 		ID:         id,
 		URL:        rawURL,
 		Filename:   filename,
+		TargetPath: targetPath,
 		State:      "queued",
 		Order:      wd.nextID,
 		StartedAt:  time.Now(),
@@ -554,15 +677,15 @@ func (wd *WebDownloader) startQueuedDownloads() {
 		wd.running++
 		id := d.ID
 		rawURL := d.URL
+		targetPath := d.TargetPath
 		ctx := d.Context
 		wd.downloadsMu.Unlock()
 
-		go wd.runDownload(ctx, id, rawURL)
+		go wd.runDownload(ctx, id, rawURL, targetPath)
 	}
 }
 
-func (wd *WebDownloader) runDownload(ctx context.Context, id, rawURL string) {
-	filename := filenameFromURL(rawURL)
+func (wd *WebDownloader) runDownload(ctx context.Context, id, rawURL, targetPath string) {
 	defer func() {
 		wd.downloadsMu.Lock()
 		if d, ok := wd.downloads[id]; ok && d.State == "downloading" {
@@ -573,7 +696,7 @@ func (wd *WebDownloader) runDownload(ctx context.Context, id, rawURL string) {
 		wd.startQueuedDownloads()
 	}()
 
-	outputPath, size, err := wd.downloadFile(ctx, id, rawURL)
+	outputPath, size, err := wd.downloadFile(ctx, id, rawURL, targetPath)
 	if err != nil {
 		return
 	}
@@ -585,7 +708,7 @@ func (wd *WebDownloader) runDownload(ctx context.Context, id, rawURL string) {
 		Downloaded: time.Now(),
 		Size:       size,
 	}
-	wd.history.DownloadedFiles[filename] = rawURL
+	wd.history.DownloadedFiles[targetPath] = rawURL
 	saveHistory(wd.historyFile, wd.history)
 	wd.historyMu.Unlock()
 }
@@ -637,7 +760,18 @@ type SeriesSearchRequest struct {
 }
 
 type SeriesDownloadRequest struct {
-	URLs []string `json:"urls"`
+	URLs  []string             `json:"urls"`
+	Items []SeriesDownloadItem `json:"items"`
+}
+
+type SeriesDownloadItem struct {
+	URL         string `json:"url"`
+	Filename    string `json:"filename"`
+	ShowName    string `json:"show_name"`
+	ShowYear    string `json:"show_year"`
+	Season      int    `json:"season"`
+	Episode     int    `json:"episode"`
+	EpisodeName string `json:"episode_name"`
 }
 
 type TVMazeClient struct {
@@ -651,9 +785,10 @@ type TVSearchResult struct {
 }
 
 type Show struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Premiered string `json:"premiered"`
 }
 
 type Episode struct {
@@ -715,6 +850,7 @@ type linkResponse struct {
 type SeriesMatch struct {
 	ShowID            int               `json:"show_id"`
 	ShowName          string            `json:"show_name"`
+	ShowYear          string            `json:"show_year,omitempty"`
 	Code              string            `json:"code"`
 	Season            int               `json:"season"`
 	Episode           int               `json:"episode"`
@@ -911,6 +1047,7 @@ func linkSeriesEpisode(ctx context.Context, ws WebshareClient, show Show, episod
 	match := SeriesMatch{
 		ShowID:         show.ID,
 		ShowName:       show.Name,
+		ShowYear:       yearFromDate(show.Premiered),
 		Code:           episodeCode(episode),
 		Season:         episode.Season,
 		Episode:        episode.Number,
@@ -1711,28 +1848,39 @@ const htmlTemplate = `<!DOCTYPE html>
         }
 
         async function downloadSelectedSeries() {
-            const urls = [];
+            const items = [];
             document.querySelectorAll('.series-check:checked').forEach(check => {
                 const idx = parseInt(check.dataset.index, 10);
+                const match = seriesMatches[idx];
                 const select = document.querySelector('.candidate-select[data-index="' + idx + '"]');
                 if (!select) return;
-                const candidate = (seriesMatches[idx].candidates || [])[parseInt(select.value, 10)];
-                if (candidate && candidate.url) urls.push(candidate.url);
+                const candidate = (match.candidates || [])[parseInt(select.value, 10)];
+                if (candidate && candidate.url) {
+                    items.push({
+                        url: candidate.url,
+                        filename: candidate.name,
+                        show_name: match.show_name,
+                        show_year: match.show_year,
+                        season: match.season,
+                        episode: match.episode,
+                        episode_name: match.episode_name
+                    });
+                }
             });
-            if (!urls.length) {
+            if (!items.length) {
                 alert('No selected downloadable episodes.');
                 return;
             }
             const resp = await fetch('/api/series/download', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({urls})
+                body: JSON.stringify({items})
             });
             if (!resp.ok) {
                 alert('Failed: ' + await resp.text());
                 return;
             }
-            document.getElementById('series-status').textContent = 'Queued ' + urls.length + ' downloads. Up to 5 run at the same time.';
+            document.getElementById('series-status').textContent = 'Queued ' + items.length + ' downloads. Up to 5 run at the same time.';
             if (!polling) pollProgress();
         }
 
@@ -1907,8 +2055,20 @@ func startWebServer(addr, outputDir, historyFile string, maxConcurrent int) {
 			http.Error(w, "Invalid request", 400)
 			return
 		}
-		started := make([]string, 0, len(req.URLs))
+		started := make([]string, 0, len(req.Items)+len(req.URLs))
 		var errs []string
+		for _, item := range req.Items {
+			item.URL = strings.TrimSpace(item.URL)
+			if item.URL == "" {
+				continue
+			}
+			id, err := wd.startDownloadTo(item.URL, seriesTargetPath(item))
+			if err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			started = append(started, id)
+		}
 		for _, rawURL := range req.URLs {
 			rawURL = strings.TrimSpace(rawURL)
 			if rawURL == "" {
