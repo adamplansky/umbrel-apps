@@ -88,13 +88,13 @@ make deploy UMBREL_HOST=umbrel@your-umbrel-hostname-or-ip
 
 If you are already SSHed into Umbrel, run the Docker commands directly on Umbrel instead of `make deploy` from your workstation.
 
-If `make deploy` appears stuck during the pull step, run the same steps manually to see whether SSH or `sudo` is waiting for input:
+If `make deploy` appears stuck during the pull step, run the same deployment manually to see whether SSH or `sudo` is waiting for input:
 
 ```bash
-ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "echo connected"
-ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo -v"
-ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest"
-ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader"
+ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "\
+  sudo -v && \
+  sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest && \
+  sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader"
 ```
 
 ---

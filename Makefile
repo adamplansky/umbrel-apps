@@ -68,17 +68,16 @@ pushtoumbrel:
 deploy:
 	@echo "=== Updating app on Umbrel ($(UMBREL_HOST)) ==="
 	@echo ""
-	@echo "[1/4] Checking SSH connection..."
-	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "echo connected"
-	@echo ""
-	@echo "[2/4] Checking sudo access..."
-	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo -v"
-	@echo ""
-	@echo "[3/4] Pulling latest image..."
-	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest"
-	@echo ""
-	@echo "[4/4] Restarting app..."
-	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) "sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet'"
+	ssh -tt -o ConnectTimeout=10 $(UMBREL_HOST) " \
+		echo '[1/3] Checking sudo access...' && \
+		sudo -v && \
+		echo '' && \
+		echo '[2/3] Pulling latest image...' && \
+		sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest && \
+		echo '' && \
+		echo '[3/3] Restarting app...' && \
+		(sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet') \
+	"
 	@echo ""
 	@echo "=== Done! ==="
 
