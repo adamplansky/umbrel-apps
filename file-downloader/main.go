@@ -158,7 +158,7 @@ func loadEnvFile(path string) error {
 				value = value[1 : len(value)-1]
 			}
 		}
-		if _, exists := os.LookupEnv(key); !exists {
+		if existing, exists := os.LookupEnv(key); !exists || existing == "" {
 			if err := os.Setenv(key, value); err != nil {
 				return err
 			}

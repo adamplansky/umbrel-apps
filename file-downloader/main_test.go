@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -31,5 +32,19 @@ func TestSeriesTargetPath(t *testing.T) {
 func TestResolveOutputPathRejectsTraversal(t *testing.T) {
 	if _, err := resolveOutputPath(t.TempDir(), filepath.Join("Shows", "..", "..", "escape.mkv")); err == nil {
 		t.Fatal("resolveOutputPath() accepted traversal path")
+	}
+}
+
+func TestLoadEnvFileOverridesEmptyExistingEnv(t *testing.T) {
+	t.Setenv("WEBSHARE_USERNAME", "")
+	path := filepath.Join(t.TempDir(), "webshare.env")
+	if err := os.WriteFile(path, []byte("WEBSHARE_USERNAME=\"user\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadEnvFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("WEBSHARE_USERNAME"); got != "user" {
+		t.Fatalf("WEBSHARE_USERNAME = %q, want user", got)
 	}
 }
