@@ -72,9 +72,11 @@ For local CLI/development runs, you can still export the same variables in your 
 **Updating the app on Umbrel:**
 
 This app is published as `ghcr.io/adamplansky/umbrel-apps:latest`.
+Older installs may still reference the legacy image `ghcr.io/adamplansky/umbrel-downloader:latest`, so pull both before restarting:
 
 ```bash
 sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest
+sudo docker pull ghcr.io/adamplansky/umbrel-downloader:latest
 sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader
 ```
 
@@ -94,6 +96,7 @@ If `make deploy` appears stuck during the pull step, run the same deployment man
 ssh -tt -o ConnectTimeout=10 umbrel@umbrel.home.arpa "\
   sudo -v && \
   sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest && \
+  sudo docker pull ghcr.io/adamplansky/umbrel-downloader:latest && \
   sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader"
 ```
 

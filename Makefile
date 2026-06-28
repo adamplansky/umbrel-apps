@@ -72,8 +72,9 @@ deploy:
 		echo '[1/3] Checking sudo access...' && \
 		sudo -v && \
 		echo '' && \
-		echo '[2/3] Pulling latest image...' && \
+		echo '[2/3] Pulling latest images...' && \
 		sudo docker pull ghcr.io/adamplansky/umbrel-apps:latest && \
+		sudo docker pull ghcr.io/adamplansky/umbrel-downloader:latest && \
 		echo '' && \
 		echo '[3/3] Restarting app...' && \
 		(sudo umbreld client apps.restart.mutate --appId adamplansky-file-downloader 2>/dev/null || echo 'App not installed yet') \
